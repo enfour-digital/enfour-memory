@@ -37,6 +37,9 @@ struct Cli {
     models: PathBuf,
     #[arg(long, global = true)]
     lexical_only: bool,
+    /// Bypass ephemeral computation caches for diagnostics and cold comparisons.
+    #[arg(long, global = true)]
+    no_cache: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -173,6 +176,7 @@ async fn status(State(s): State<MemoryServer>) -> Response {
             }
             .into();
             v["models"] = e.models.as_ref().map(|m| m.info()).into();
+            v["cache"] = e.cache_info();
             v["rerank_candidates"] = e
                 .models
                 .as_ref()
@@ -265,7 +269,7 @@ async fn main() -> Result<()> {
         }
         _ => {}
     }
-    let engine = Engine::open(
+    let mut engine = Engine::open(
         &cli.db,
         if cli.lexical_only {
             None
@@ -273,6 +277,7 @@ async fn main() -> Result<()> {
             Some(&cli.models)
         },
     )?;
+    engine.set_cache_enabled(!cli.no_cache);
     match cli.command {
         Command::Stdio => {
             MemoryServer::new(engine)

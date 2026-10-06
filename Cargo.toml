@@ -1,6 +1,6 @@
 [package]
 name = "enfour-memory"
-version = "0.2.0"
+version = "0.2.1"
 default-run = "enfour-memory"
 edition = "2024"
 rust-version = "1.99"
@@ -9,6 +9,7 @@ description = "Small, local, source-backed memory for coding agents"
 
 [dependencies]
 anyhow = "1"
+moka = { version = "=0.12.16", default-features = false, features = ["sync"] }
 axum = "0.8.9"
 clap = { version = "4", features = ["derive", "env"] }
 fastembed = { version = "=7.1.0", default-features = false, features = ["ort-download-binaries-rustls-tls"] }

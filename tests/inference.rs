@@ -144,4 +144,20 @@ fn local_inference_retrieval_and_footprint() {
         retrieved, 4,
         "evidence missing from the three-candidate budget"
     );
+    // Compare completed-result caching against a fresh computation in the same index.
+    let query = "Which database is used?";
+    let cached = engine.recall("repo:test", query, 3).unwrap();
+    let warm = Instant::now();
+    let repeated = engine.recall("repo:test", query, 3).unwrap();
+    println!("cached_recall_us={}", warm.elapsed().as_micros());
+    engine.set_cache_enabled(false);
+    let uncached = engine.recall("repo:test", query, 3).unwrap();
+    assert_eq!(
+        serde_json::to_value(&cached).unwrap(),
+        serde_json::to_value(&repeated).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&cached).unwrap(),
+        serde_json::to_value(&uncached).unwrap()
+    );
 }

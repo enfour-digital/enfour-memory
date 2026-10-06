@@ -120,8 +120,36 @@ impl Store {
           CREATE TRIGGER IF NOT EXISTS chunk_delete AFTER DELETE ON chunks BEGIN INSERT INTO search(search,rowid,text) VALUES('delete',old.id,old.text); END;
           CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS relations(id TEXT PRIMARY KEY,scope TEXT NOT NULL,from_id TEXT NOT NULL REFERENCES memories(id),to_id TEXT NOT NULL REFERENCES memories(id),data TEXT NOT NULL);
-          PRAGMA user_version=1; COMMIT;")?;
+          INSERT OR IGNORE INTO metadata VALUES('retrieval_generation','0');
+          PRAGMA user_version=1;")?;
+        // Global rather than per-scope: FTS5's document frequencies span scopes.
+        // Triggers also cover commits from other processes and older binaries.
+        for table in ["memories", "chunks", "relations"] {
+            for action in ["INSERT", "UPDATE", "DELETE"] {
+                db.execute_batch(&format!(
+                    "CREATE TRIGGER IF NOT EXISTS cache_{table}_{action} AFTER {action} ON {table}
+                     BEGIN UPDATE metadata SET value=CAST(value AS INTEGER)+1
+                     WHERE key='retrieval_generation'; END;"
+                ))?;
+            }
+        }
+        db.execute_batch("COMMIT;")?;
         Ok(Self { db })
+    }
+    /// Read inside the caller's transaction so version and candidates share a snapshot.
+    pub(crate) fn retrieval_state(
+        &self,
+        scope: &str,
+        at: i64,
+    ) -> Result<(i64, Option<i64>, Option<i64>)> {
+        Ok(self.db.query_row(
+            "SELECT CAST(value AS INTEGER),
+             (SELECT max(expires_at) FROM memories WHERE scope=?1 AND deleted=0 AND expires_at<=?2),
+             (SELECT min(expires_at) FROM memories WHERE scope=?1 AND deleted=0 AND expires_at>?2)
+             FROM metadata WHERE key='retrieval_generation'",
+            params![scope, at],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?)
     }
     pub fn validate(r: &Remember) -> Result<()> {
         for (name, value, max) in [
@@ -274,6 +302,16 @@ impl Store {
         vector: Option<&[f32]>,
         limit: usize,
     ) -> Result<Vec<Hit>> {
+        self.candidates_at(scope, query, vector, limit, now())
+    }
+    pub(crate) fn candidates_at(
+        &self,
+        scope: &str,
+        query: &str,
+        vector: Option<&[f32]>,
+        limit: usize,
+        at: i64,
+    ) -> Result<Vec<Hit>> {
         ensure!((1..=128).contains(&limit), "candidate limit must be 1..128");
         let terms: Vec<String> = query
             .split(|c: char| !c.is_alphanumeric())
@@ -285,7 +323,7 @@ impl Store {
         if !terms.is_empty() {
             let mut q=self.db.prepare("SELECT c.id FROM search JOIN chunks c ON c.id=search.rowid JOIN memories m ON m.id=c.memory_id WHERE search MATCH ? AND m.scope=? AND m.deleted=0 AND (m.expires_at IS NULL OR m.expires_at>?) ORDER BY bm25(search) LIMIT 64")?;
             for (rank, id) in q
-                .query_map(params![terms.join(" OR "), scope, now()], |r| {
+                .query_map(params![terms.join(" OR "), scope, at], |r| {
                     r.get::<_, i64>(0)
                 })?
                 .enumerate()
@@ -296,7 +334,7 @@ impl Store {
         if let Some(v) = vector {
             let mut best: Vec<(i64, f32)> = Vec::new();
             let mut q=self.db.prepare("SELECT c.id,c.vector FROM chunks c JOIN memories m ON m.id=c.memory_id WHERE m.scope=? AND m.deleted=0 AND (m.expires_at IS NULL OR m.expires_at>?) AND c.vector IS NOT NULL")?;
-            let mut rows = q.query(params![scope, now()])?;
+            let mut rows = q.query(params![scope, at])?;
             while let Some(row) = rows.next()? {
                 let bytes: Vec<u8> = row.get(1)?;
                 ensure!(
@@ -485,5 +523,50 @@ impl Store {
             .context("backup destination exists or cannot be created")?;
         self.db.backup("main", path, None)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod cache_snapshot_tests {
+    use super::*;
+    use crate::engine::Engine;
+    #[test]
+    fn generation_and_candidates_share_a_snapshot_across_external_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("db");
+        let mut writer = Engine::open(&db, None).unwrap();
+        let mut note = Remember {
+            scope: "repo:snapshot".into(),
+            key: "a".into(),
+            title: "a".into(),
+            content: "SQLite evidence".into(),
+            kind: "fact".into(),
+            source: "test://snapshot".into(),
+            expected_revision: 0,
+            expires_at: None,
+        };
+        writer.remember(note.clone()).unwrap();
+        let reader = Store::open(&db).unwrap();
+        let tx = reader.db.unchecked_transaction().unwrap();
+        let before = reader.retrieval_state(&note.scope, now()).unwrap();
+        note.key = "b".into();
+        writer.remember(note.clone()).unwrap();
+        assert_eq!(reader.retrieval_state(&note.scope, now()).unwrap(), before);
+        assert_eq!(
+            reader
+                .candidates(&note.scope, "SQLite", None)
+                .unwrap()
+                .len(),
+            1
+        );
+        tx.commit().unwrap();
+        assert!(reader.retrieval_state(&note.scope, now()).unwrap().0 > before.0);
+        assert_eq!(
+            reader
+                .candidates(&note.scope, "SQLite", None)
+                .unwrap()
+                .len(),
+            2
+        );
     }
 }

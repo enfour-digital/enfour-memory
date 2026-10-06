@@ -157,6 +157,13 @@ with a committed lockfile. Stable fastembed requires a prerelease `ort` binding;
 see [build details](docs/build.md). No Python interpreter or compiler is needed
 in the running service. Python is used only for provisioning and wire tests.
 
+v0.2.1 adds automatic exact caching for completed rankings, embeddings,
+four-passage reranker batches and token-aware chunking. Moka's estimated entry
+budget totals 64 MiB. Database revisions, read snapshots and expiry windows
+protect freshness; cached and uncached selected-model outputs are checked for
+equivalence. Cache counters appear in authenticated `/api/status`; `--no-cache`
+bypasses reuse for diagnostics. See [cache design and validation](docs/caching.md).
+
 The v0.2 executable measures 36.5 MiB, its runtime image 122.8 MiB, and its
 two-record deployment smoke test about 541 MiB process RSS. Compose allows
 3 GiB and retains a lightweight local health probe. Warm searches over those

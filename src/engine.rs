@@ -1,17 +1,41 @@
 use crate::{
+    cache::ExactCache,
     models::Models,
     store::{Chunk, Hit, Memory, Remember, Store},
 };
 use anyhow::{Result, ensure};
 use rusqlite::OptionalExtension;
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 pub const DEFAULT_RERANK_CANDIDATES: usize = 64;
+
+#[derive(Hash, PartialEq, Eq)]
+struct RecallKey {
+    scope: String,
+    query: String,
+    models: Option<String>,
+    candidates: usize,
+    generation: i64,
+    expiry_epoch: Option<i64>,
+}
+fn hit_bytes(h: &Hit) -> usize {
+    let m = &h.memory;
+    size_of::<Hit>()
+        + h.excerpt.len()
+        + [
+            &m.id, &m.scope, &m.key, &m.title, &m.content, &m.kind, &m.source,
+        ]
+        .iter()
+        .map(|s| s.len())
+        .sum::<usize>()
+}
 
 pub struct Engine {
     pub store: Store,
     pub models: Option<Models>,
     _index_lock: std::fs::File,
+    results: ExactCache<RecallKey, Arc<Vec<Hit>>>,
+    cached_generation: Option<i64>,
 }
 impl Engine {
     pub fn open(db: &Path, models: Option<&Path>) -> Result<Self> {
@@ -46,7 +70,23 @@ impl Engine {
             store,
             models,
             _index_lock: index_lock,
+            results: ExactCache::new(|k: &RecallKey, v: &Arc<Vec<Hit>>| {
+                k.scope.len()
+                    + k.query.len()
+                    + k.models.as_ref().map_or(0, String::len)
+                    + v.iter().map(hit_bytes).sum::<usize>()
+            }),
+            cached_generation: None,
         })
+    }
+    pub fn set_cache_enabled(&mut self, enabled: bool) {
+        self.results.set_enabled(enabled);
+        if let Some(models) = self.models.as_mut() {
+            models.set_cache_enabled(enabled);
+        }
+    }
+    pub fn cache_info(&self) -> serde_json::Value {
+        serde_json::json!({"results":self.results.info(),"models":self.models.as_ref().map(Models::cache_info)})
     }
     /// Offline maintenance: replace derived chunks atomically, retaining all source history.
     pub fn reindex(db: &Path, model_path: &Path) -> Result<usize> {
@@ -137,31 +177,73 @@ impl Engine {
             "query must contain 1..4000 bytes"
         );
         ensure!((1..=16).contains(&limit), "limit must be 1..16");
-        let vector = if let Some(m) = self.models.as_mut() {
-            Some(m.embed(vec![query.into()], true)?.remove(0))
-        } else {
-            None
-        };
-        let mut hits =
-            self.store
-                .candidates_with_limit(scope, query, vector.as_deref(), candidates)?;
-        if !hits.is_empty()
-            && let Some(m) = self.models.as_mut()
-        {
-            let docs: Vec<_> = hits.iter().map(|h| h.excerpt.clone()).collect();
-            for (i, score) in m.rerank(query, &docs)? {
-                if let Some(h) = hits.get_mut(i) {
-                    h.rerank_score = Some(score)
-                }
+        ensure!(
+            (1..=128).contains(&candidates),
+            "candidate limit must be 1..128"
+        );
+        ensure!(
+            !scope.trim().is_empty() && scope.len() <= 512 && !scope.contains('\0'),
+            "invalid scope"
+        );
+        // Pin the SQLite snapshot before reading its generation. A concurrent
+        // commit cannot pair an old generation with new candidates (or vice versa).
+        let tx = self.store.db.unchecked_transaction()?;
+        for _ in 0..3 {
+            let at = crate::store::now();
+            let (generation, expiry_epoch, next_expiry) = self.store.retrieval_state(scope, at)?;
+            if self.cached_generation != Some(generation) {
+                self.results.clear();
+                self.cached_generation = Some(generation);
             }
-            hits.sort_by(|a, b| {
-                b.rerank_score
-                    .unwrap_or(f32::NEG_INFINITY)
-                    .total_cmp(&a.rerank_score.unwrap_or(f32::NEG_INFINITY))
-                    .then(a.memory.id.cmp(&b.memory.id))
-            });
+            let key = RecallKey {
+                scope: scope.into(),
+                query: query.into(),
+                models: self.models.as_ref().map(|m| m.cache_identity.clone()),
+                candidates,
+                generation,
+                expiry_epoch,
+            };
+            let cached = self.results.get(&key);
+            let mut hits = if let Some(hits) = cached {
+                (*hits).clone()
+            } else {
+                let vector = if let Some(m) = self.models.as_mut() {
+                    Some(m.embed(vec![query.into()], true)?.remove(0))
+                } else {
+                    None
+                };
+                let mut hits =
+                    self.store
+                        .candidates_at(scope, query, vector.as_deref(), candidates, at)?;
+                if !hits.is_empty()
+                    && let Some(m) = self.models.as_mut()
+                {
+                    let docs: Vec<_> = hits.iter().map(|h| h.excerpt.clone()).collect();
+                    for (i, score) in m.rerank(query, &docs)? {
+                        if let Some(h) = hits.get_mut(i) {
+                            h.rerank_score = Some(score);
+                        }
+                    }
+                    hits.sort_by(|a, b| {
+                        b.rerank_score
+                            .unwrap_or(f32::NEG_INFINITY)
+                            .total_cmp(&a.rerank_score.unwrap_or(f32::NEG_INFINITY))
+                            .then(a.memory.id.cmp(&b.memory.id))
+                    });
+                }
+                // All allowed result limits are prefixes of this same ranking.
+                hits.truncate(16);
+                self.results.insert(key, Arc::new(hits.clone()));
+                hits
+            };
+            let finished = crate::store::now();
+            if finished < at || next_expiry.is_some_and(|expiry| finished >= expiry) {
+                continue;
+            }
+            tx.commit()?;
+            hits.truncate(limit);
+            return Ok(hits);
         }
-        hits.truncate(limit);
-        Ok(hits)
+        anyhow::bail!("memory expiry changed during retrieval; retry")
     }
 }
