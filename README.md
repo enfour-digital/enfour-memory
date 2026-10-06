@@ -5,11 +5,12 @@ embeddings and reranking, revision history, graph exports, a browser search
 page, and an official `rmcp` MCP server. Runs on the ThinkPad; no cloud
 inference or telemetry in the service.
 
-The v0.2 profile is selected through independent retrieval experiments.
+The deployed v0.2 profile was selected on a fixed retrieval development split.
 Read the [benchmark report](docs/benchmark-results.md), [research audit](docs/research.md)
 and [validation record](docs/validation.md) for evidence and limitations.
-Held-out evaluation is in progress; the existing homelab service stays on v0.1
-until that evaluation and release acceptance checks finish.
+Development evidence Recall@5 improved from 66.53% to 74.63% across 340
+questions. The larger held-out study was deferred; this is not a claim of
+independent test accuracy or a state-of-the-art leaderboard result.
 
 ## Start on the homelab
 
@@ -156,10 +157,17 @@ with a committed lockfile. Stable fastembed requires a prerelease `ort` binding;
 see [build details](docs/build.md). No Python interpreter or compiler is needed
 in the running service. Python is used only for provisioning and wire tests.
 
-The v0.1 deployed executable measured about 37 MiB, its runtime image about
-123 MiB, and its two-record smoke test about 572 MiB process RSS. The v0.2
-Compose profile allows 3 GiB and retains a lightweight local health probe.
-Final v0.2 resource measurements will accompany the held-out results.
+The v0.2 executable measures 36.5 MiB, its runtime image 122.8 MiB, and its
+two-record deployment smoke test about 541 MiB process RSS. Compose allows
+3 GiB and retains a lightweight local health probe. Warm searches over those
+two records took 307–311 ms; the 64-candidate development run had a 12-second
+median under concurrent CPU load. These are different workloads, not a latency
+guarantee. Longer documents and larger candidate sets cost more inference time.
+
+Routine changes receive targeted checks. Full dataset evaluations are reserved
+for substantial retrieval changes or an explicit evaluation milestone, never
+automatically for every commit. Completed predictions and model selection are
+kept so documentation, client or UI edits do not repeat expensive inference.
 
 Soft Serve repository: `ssh://git@git.example.com/enfour-memory.git`.
 The [example graph](docs/example-graph.json) and [Graphviz export](docs/example-graph.dot)
