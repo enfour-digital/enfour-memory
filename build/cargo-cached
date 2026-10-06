@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+status=0
+if [ -n "${RUSTC_WRAPPER:-}" ]; then sccache --start-server; fi
+cargo "$@" || status=$?
+# Drain Redis writes, while preserving the actual Cargo failure code.
+if [ -n "${RUSTC_WRAPPER:-}" ]; then
+  sccache --show-stats || status=1
+  sccache --stop-server >/dev/null || status=1
+fi
+if [ -n "${LOCAL_OWNER:-}" ]; then
+  for path in /workspace/target /workspace/Cargo.lock; do
+    if [ -e "$path" ]; then chown -R "$LOCAL_OWNER" "$path" || status=1; fi
+  done
+fi
+exit "$status"

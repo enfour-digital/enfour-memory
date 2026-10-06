@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+# Explicit host prevents an ambient Docker context from executing on the Mac.
+docker_local=(docker --host unix:///var/run/docker.sock)
+image=enfour-memory-rust:1.99.0
+case "${1:-test}" in
+  image)
+    exec "${docker_local[@]}" build --tag "$image" build
+    ;;
+  fetch)
+    shift
+    exec "${docker_local[@]}" run --rm --cpus 2 --memory 3g \
+      --env "LOCAL_OWNER=$(id -u):$(id -g)" \
+      --mount "type=bind,src=$PWD,dst=/workspace" \
+      --mount type=volume,src=enfour-cargo-downloads,dst=/cache/cargo \
+      --env RUSTC_WRAPPER= "$image" fetch --locked "$@"
+    ;;
+  *)
+    exec "${docker_local[@]}" run --rm --cpus 2 --memory 3g \
+      --network enfour-compiler-cache \
+      --env ENFOUR_MODELS \
+      --env "LOCAL_OWNER=$(id -u):$(id -g)" \
+      --mount "type=bind,src=$PWD,dst=/workspace" \
+      --mount type=volume,src=enfour-cargo-downloads,dst=/cache/cargo \
+      "$image" "${@:-test}"
+    ;;
+esac

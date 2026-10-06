@@ -1,0 +1,25 @@
+services:
+  memory:
+    image: enfour-memory:local
+    build: .
+    user: "${ENFOUR_UID:-1000}:${ENFOUR_GID:-100}"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 2
+    mem_limit: 1g
+    pids_limit: 128
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    ports: ["${ENFOUR_BIND:-127.0.0.1}:7463:7463"]
+    volumes:
+      - ./state:/data
+      - ./models:/models:ro
+    environment:
+      TOKENIZERS_PARALLELISM: "false"
+    healthcheck:
+      test: [CMD, /usr/local/bin/enfour-memory, health]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

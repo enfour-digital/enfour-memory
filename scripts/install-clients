@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Register this checkout once in local Codex/Grok, preserving other settings."""
+import argparse
+import datetime
+import json
+import os
+from pathlib import Path
+import stat
+import tomllib
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--home", type=Path, default=Path.home())
+parser.add_argument("--codex-source", type=Path, help="Home Manager's source config.toml")
+args = parser.parse_args()
+root = Path(__file__).resolve().parent.parent
+entry = {
+    "command": str(root / "scripts/enfour"),
+    "args": ["connect"],
+    "startup_timeout_sec": 30,
+    "tool_timeout_sec": 60,
+}
+section = '\n[mcp_servers.enfour-memory]\n' + '\n'.join(
+    f"{key} = {json.dumps(value)}" for key, value in entry.items()
+) + '\n'
+targets = [args.home / ".codex/config.toml", args.home / ".grok/config.toml"]
+if args.codex_source:
+    targets.insert(0, args.codex_source)
+changes = []
+for target in targets:
+    if target.is_symlink():
+        raise SystemExit(f"Refusing to replace managed symlink: {target}")
+    old = target.read_text() if target.exists() else ""
+    parsed = tomllib.loads(old)
+    existing = parsed.get("mcp_servers", {}).get("enfour-memory")
+    if existing is not None:
+        if any(existing.get(key) != value for key, value in entry.items()):
+            raise SystemExit(f"Existing Enfour configuration differs; inspect {target}")
+        print(f"Already registered: {target}")
+        continue
+    new = old.rstrip() + "\n" + section
+    expected = parsed.copy()
+    expected["mcp_servers"] = dict(parsed.get("mcp_servers", {}), **{"enfour-memory": entry})
+    assert tomllib.loads(new) == expected, "Unrelated settings changed"
+    changes.append((target, old, new))
+
+if changes:
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    backup = root / "state/client-backups" / stamp
+    backup.mkdir(parents=True, mode=0o700)
+    for index, (target, old, new) in enumerate(changes):
+        saved = backup / f"{index}.toml"
+        saved.write_text(old)
+        saved.chmod(0o600)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        mode = stat.S_IMODE(target.stat().st_mode) if target.exists() else 0o600
+        temporary = target.with_name(target.name + ".enfour.generated")
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+        with os.fdopen(fd, "w") as stream:
+            stream.write(new)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(target)
+        print(f"Registered: {target}")
+    manifest = backup / "paths.json"
+    manifest.write_text(json.dumps([str(item[0]) for item in changes], indent=2))
+    manifest.chmod(0o600)
+    print(f"Private backups: {backup}")
+print("Restart the clients to load the MCP entry. No per-project setup is needed.")

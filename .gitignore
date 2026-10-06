@@ -4,4 +4,4 @@
 *.sqlite*
 *.token
 __pycache__/
-
+.env

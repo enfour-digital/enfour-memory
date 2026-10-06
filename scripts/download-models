@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Explicit, resumable-by-file provisioning. Runtime never accesses the hub."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import urllib.request
+
+root = Path(sys.argv[1] if len(sys.argv) > 1 else "models")
+specs = {
+    "embedding": ("Qdrant/bge-small-en-v1.5-onnx-Q", "aa8f8b060edb00e03bfdd08813a2949946c8ba55", "model_optimized.onnx"),
+    "reranker": ("mixedbread-ai/mxbai-rerank-xsmall-v1", "b5c6e9da73abc3711f593f705371cdbe9e0fe422", "onnx/model_quantized.onnx"),
+}
+if os.environ.get("ENFOUR_RERANKER") == "jina":
+    specs["reranker"] = ("jinaai/jina-reranker-v1-tiny-en", "aca45de6945b5dc6399abcd2a9c55ded5dc9111f", "onnx/model_quantized.onnx")
+if os.environ.get("ENFOUR_RERANKER") == "tinybert":
+    specs["reranker"] = ("cross-encoder/ms-marco-TinyBERT-L2-v2", "81d1926f67cb8eee2c2be17ca9f793c7c3bd20cc", "onnx/model_quint8_avx2.onnx")
+if os.environ.get("ENFOUR_RERANKER") == "minilm":
+    specs["reranker"] = ("cross-encoder/ms-marco-MiniLM-L-6-v2", "233902d25c440f23af6f7d6e94d2946bac0bee0a", "onnx/model_quint8_avx2.onnx")
+if os.environ.get("ENFOUR_RERANKER") == "minilm-fp32":
+    specs["reranker"] = ("cross-encoder/ms-marco-MiniLM-L-6-v2", "233902d25c440f23af6f7d6e94d2946bac0bee0a", "onnx/model.onnx")
+if os.environ.get("ENFOUR_RERANKER") == "mxbai":
+    specs["reranker"] = ("mixedbread-ai/mxbai-rerank-xsmall-v1", "b5c6e9da73abc3711f593f705371cdbe9e0fe422", "onnx/model_quantized.onnx")
+root.mkdir(parents=True, exist_ok=True)
+manifest = {}
+for role, (repo, revision, weights) in specs.items():
+    folder = root / role
+    folder.mkdir(exist_ok=True)
+    spec = {"repository": repo, "revision": revision, "files": {}}
+    # Hub metadata includes LFS hashes for weights and Git blob IDs for small files.
+    with urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}/revision/{revision}?blobs=true", timeout=60) as r:
+        metadata = {f["rfilename"]: f for f in json.load(r)["siblings"]}
+    for source in [weights, "tokenizer.json", "config.json", "special_tokens_map.json", "tokenizer_config.json"]:
+        name = "model.onnx" if source == weights else source
+        target = folder / name
+        entry = metadata[source]
+        def valid(path):
+            if not path.exists(): return False
+            data = path.read_bytes()
+            if "lfs" in entry:
+                return hashlib.sha256(data).hexdigest() == entry["lfs"]["sha256"]
+            return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest() == entry["blobId"]
+        if not valid(target):
+            partial = folder / (name + ".part")
+            print(f"Fetching {role}/{name}", flush=True)
+            with urllib.request.urlopen(f"https://huggingface.co/{repo}/resolve/{revision}/{source}", timeout=120) as r, partial.open("wb") as f:
+                while block := r.read(1024 * 1024): f.write(block)
+                f.flush()
+                os.fsync(f.fileno())
+            if not valid(partial): raise SystemExit(f"Checksum mismatch: {partial}")
+            partial.replace(target)
+        spec["files"][name] = hashlib.sha256(target.read_bytes()).hexdigest()
+    manifest[role] = spec
+partial = root / "manifest.json.part"
+partial.write_text(json.dumps(manifest, indent=2) + "\n")
+partial.replace(root / "manifest.json")
+print(f"Verified models ready: {root}")
