@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Prepare the full official BEIR SciFact test split; labels remain evaluator-only."""
+import collections
+import csv
+import hashlib
+import io
+import json
+from pathlib import Path
+import urllib.request
+import zipfile
+
+root=Path('bench/scifact');root.mkdir(parents=True,exist_ok=True)
+source=root/'source.zip'
+url='https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip'
+if not source.exists(): source.write_bytes(urllib.request.urlopen(url,timeout=60).read())
+digest=hashlib.sha256(source.read_bytes()).hexdigest()
+assert digest=='536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165'
+z=zipfile.ZipFile(source)
+corpus=[]
+for line in z.read('scifact/corpus.jsonl').decode().splitlines():
+    doc=json.loads(line)
+    title=doc['title'].encode()[:190].decode(errors='ignore') or 'Scientific abstract'
+    corpus.append(dict(scope='beir:scifact',key=doc['_id'],title=title,content=doc['title']+'\n'+doc['text'],kind='fact',source='beir:scifact:'+doc['_id'],expected_revision=0))
+gold=collections.defaultdict(list)
+for row in csv.DictReader(io.StringIO(z.read('scifact/qrels/test.tsv').decode()),delimiter='\t'):
+    assert int(row['score'])==1, 'scorer currently expects binary relevance'
+    gold[row['query-id']].append(row['corpus-id'])
+queries=[]
+for line in z.read('scifact/queries.jsonl').decode().splitlines():
+    q=json.loads(line)
+    if q['_id'] in gold: queries.append(dict(id=q['_id'],scope='beir:scifact',query=q['text']))
+labels=[dict(id=key,scope='beir:scifact',gold=value,category='scientific_claim',split='test') for key,value in gold.items()]
+assert len(corpus)==5183 and len(queries)==300 and len(labels)==300
+for name,rows in [('corpus.jsonl',corpus),('test.queries.jsonl',queries),('labels.jsonl',labels)]:
+    (root/name).write_text(''.join(json.dumps(row,ensure_ascii=False)+'\n' for row in rows))
+manifest=dict(upstream=url,license='CC-BY-SA-4.0',source_sha256=digest,documents=len(corpus),queries={'test':len(queries)},excluded=0,hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in root.glob('*.jsonl')})
+(root/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+print(json.dumps(manifest,indent=2))
