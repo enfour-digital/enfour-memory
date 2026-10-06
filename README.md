@@ -5,6 +5,9 @@ embeddings and reranking, revision history, graph exports, a browser search
 page, and an official `rmcp` MCP server. Runs on the ThinkPad; no cloud
 inference or telemetry in the service.
 
+See the [architecture diagrams](docs/architecture.md) for the system overview,
+recall processing order, and atomic write path.
+
 The deployed v0.2 profile was selected on a fixed retrieval development split.
 Read the [benchmark report](docs/benchmark-results.md), [research audit](docs/research.md)
 and [validation record](docs/validation.md) for evidence and limitations.
