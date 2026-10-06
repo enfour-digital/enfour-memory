@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import http.client
 import itertools
+import argparse
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,8 @@ import socket
 import subprocess
 import tempfile
 import time
+
+argparse.ArgumentParser(description=__doc__).parse_args()
 
 binary = str(Path(os.environ.get("ENFOUR_BINARY", "target/debug/enfour-memory")).resolve())
 scope = "repo:output-test"

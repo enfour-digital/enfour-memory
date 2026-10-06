@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paired bootstrap on identical query sets; default unit is whole conversation."""
+"""Compare the scores of two retrieval runs."""
 import argparse
 import collections
 import importlib.machinery
@@ -10,7 +10,7 @@ import random
 
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('baseline',type=Path);p.add_argument('candidate',type=Path)
-p.add_argument('--dataset',type=Path,default=Path('bench/locomo'))
+p.add_argument('--dataset',type=Path,default=Path(__file__).resolve().parent.parent / 'bench/locomo')
 p.add_argument('--split',choices=['dev','test'],required=True)
 p.add_argument('--unit',choices=['conversation','query'],default='conversation')
 args=p.parse_args()

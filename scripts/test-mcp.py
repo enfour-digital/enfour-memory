@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Real stdio and HTTP MCP exchanges; run inside the builder, offline."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,8 @@ import tempfile
 import time
 import urllib.request
 import urllib.error
+
+argparse.ArgumentParser(description=__doc__).parse_args()
 
 binary = str(Path(os.environ.get("ENFOUR_BINARY", "target/debug/enfour-memory")).resolve())
 def decoded(response):

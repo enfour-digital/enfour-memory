@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluator-only relevance labels. Never imported by the retrieval engine."""
+"""Read relevance labels to measure retrieval results."""
 import argparse
 import collections
 import gzip
@@ -32,7 +32,7 @@ def metrics(gold, hits):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('predictions', type=Path)
-    p.add_argument('--dataset', type=Path, default=Path('bench/locomo'))
+    p.add_argument('--dataset', type=Path, default=Path(__file__).resolve().parent.parent / 'bench/locomo')
     p.add_argument('--split',choices=['dev','test'],required=True)
     args = p.parse_args()
     labels = [json.loads(l) for l in (args.dataset/'labels.jsonl').read_text().splitlines()]

@@ -18,7 +18,7 @@ class ClientInstall(unittest.TestCase):
         self.script=self.project/'scripts/install-clients'
         shutil.copy2(SOURCE,self.script)
         self.home=self.root/'home'
-        self.targets=[self.root/'source.toml',self.home/'.codex/config.toml',self.home/'.grok/config.toml']
+        self.targets=[self.root/'source.toml',self.home/'.grok/config.toml']
         self.entry={'command':str(self.project/'scripts/enfour'),'args':['connect'],'startup_timeout_sec':30,'tool_timeout_sec':60}
         for target in self.targets:
             target.parent.mkdir(parents=True,exist_ok=True)
@@ -29,7 +29,7 @@ class ClientInstall(unittest.TestCase):
     def tearDown(self):self.temp.cleanup()
 
     def run_installer(self):
-        return subprocess.run([str(self.script),'--home',str(self.home),'--codex-source',str(self.targets[0])],capture_output=True,text=True)
+        return subprocess.run([str(self.script),'--home',str(self.home),'--codex-source',str(self.targets[0]),'--client','codex','--client','grok'],capture_output=True,text=True)
 
     def test_upgrade_preserves_settings_and_is_idempotent(self):
         result=self.run_installer()
@@ -52,5 +52,31 @@ class ClientInstall(unittest.TestCase):
         self.assertNotEqual(self.run_installer().returncode,0)
         self.assertEqual([t.read_bytes() for t in self.targets],before)
         self.assertFalse((self.project/'state').exists())
+
+    def test_default_only_changes_codex(self):
+        grok_before = self.targets[1].read_bytes()
+        result = subprocess.run([str(self.script), '--home', str(self.home)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.targets[1].read_bytes(), grok_before)
+        self.assertTrue((self.home / '.codex/config.toml').is_file())
+
+    def test_source_replaces_managed_codex_path(self):
+        link = self.home / '.codex/config.toml'
+        link.parent.mkdir(parents=True)
+        link.symlink_to(self.targets[0])
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(tomllib.loads(link.read_text())['mcp_servers']['enfour-memory']['tool_timeout_sec'], 180)
+
+    def test_symlink_without_source_is_not_replaced(self):
+        link = self.home / '.codex/config.toml'
+        link.parent.mkdir(parents=True)
+        link.symlink_to(self.targets[0])
+        before = self.targets[0].read_bytes()
+        result = subprocess.run([str(self.script), '--home', str(self.home)], capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(self.targets[0].read_bytes(), before)
 
 if __name__=='__main__':unittest.main()

@@ -1,34 +1,7 @@
-#!/usr/bin/env bash
-set -euo pipefail
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
-# Build on this Linux host, regardless of the ambient Docker context.
-docker_local=(docker --host unix:///var/run/docker.sock)
-image=enfour-memory-rust:1.99.0
-case "${1:-test}" in
-  image)
-    exec "${docker_local[@]}" build --tag "$image" build
-    ;;
-  fetch)
-    shift
-    exec "${docker_local[@]}" run --rm --cpus 2 --memory 3g \
-      --env "LOCAL_OWNER=$(id -u):$(id -g)" \
-      --mount "type=bind,src=$PWD,dst=/workspace" \
-      --mount type=volume,src=enfour-cargo-downloads,dst=/cache/cargo \
-      --env RUSTC_WRAPPER= "$image" fetch --locked "$@"
-    ;;
-  *)
-    # Reuse a shared Redis cache when present. Fresh hosts need no cache service.
-    cache_args=(--network none --env ENFOUR_CACHE_MODE=disk)
-    if "${docker_local[@]}" network inspect enfour-compiler-cache >/dev/null 2>&1; then
-      cache_args=(--network enfour-compiler-cache)
-    fi
-    exec "${docker_local[@]}" run --rm --cpus 2 --memory 3g \
-      "${cache_args[@]}" \
-      --env ENFOUR_MODELS \
-      --env "LOCAL_OWNER=$(id -u):$(id -g)" \
-      --mount "type=bind,src=$PWD,dst=/workspace" \
-      --mount type=volume,src=enfour-cargo-downloads,dst=/cache/cargo \
-      --mount type=volume,src=enfour-sccache,dst=/cache/sccache \
-      "$image" "${@:-test}"
-    ;;
-esac
+#!/usr/bin/env python3
+"""Compatibility entry point for scripts/enfour cargo."""
+import sys
+from _cli import entry
+
+if __name__ == "__main__":
+    raise SystemExit(entry(["cargo", *(sys.argv[1:] or ["test"])]))

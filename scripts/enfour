@@ -1,35 +1,6 @@
-#!/usr/bin/env bash
-set -euo pipefail
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
-docker_local=(docker --host unix:///var/run/docker.sock)
-export ENFOUR_UID="$(id -u)" ENFOUR_GID="$(id -g)"
-case "${1:-help}" in
-  up)
-    test -f models/manifest.json || { echo 'Provision models first: scripts/download-models' >&2; exit 1; }
-    install -d -m700 state
-    if [ -n "${ENFOUR_URL:-}" ] || [ ! -f state/server.url ]; then
-      printf '%s\n' "${ENFOUR_URL:-http://127.0.0.1:7463/mcp}" > state/server.url
-    fi
-    "${docker_local[@]}" compose -p enfour-memory build
-    if [ ! -f state/access.token ]; then
-      "${docker_local[@]}" compose -p enfour-memory run --rm --no-deps memory init --token-file /data/access.token
-    fi
-    exec "${docker_local[@]}" compose -p enfour-memory up -d --wait
-    ;;
-  down) exec "${docker_local[@]}" compose -p enfour-memory down ;;
-  status) exec "${docker_local[@]}" compose -p enfour-memory ps ;;
-  logs) exec "${docker_local[@]}" compose -p enfour-memory logs --tail 80 memory ;;
-  cli) shift; exec "${docker_local[@]}" compose -p enfour-memory run --rm --no-deps -T memory "$@" ;;
-  connect)
-    shift
-    url=http://127.0.0.1:7463/mcp
-    if [ -f state/server.url ]; then read -r url < state/server.url; fi
-    exec "${docker_local[@]}" run --rm -i --read-only --network host \
-      --user "$ENFOUR_UID:$ENFOUR_GID" --cap-drop ALL --security-opt no-new-privileges:true \
-      --memory 128m --cpus 0.5 --pids-limit 32 \
-      --mount "type=bind,src=$PWD/state/access.token,dst=/access.token,readonly" \
-      --entrypoint /usr/local/bin/enfour-memory enfour-memory:local \
-      connect --url "${ENFOUR_URL:-$url}" --token-file /access.token "$@"
-    ;;
-  *) echo 'Usage: scripts/enfour up|down|status|logs|connect|cli [arguments]' ;;
-esac
+#!/usr/bin/env python3
+"""Enfour operator commands."""
+from _cli import entry
+
+if __name__ == "__main__":
+    raise SystemExit(entry())

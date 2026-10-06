@@ -22,5 +22,5 @@ RUN curl --fail --location --retry 3 -o /tmp/ort.tar.lzma2 \
     && tar -xf /tmp/ort.tar -C /opt/ort-cache/dfbin/x86_64-unknown-linux-gnu/e454f710f8a49f53aa5b4ff51e3454ae1835777e431c6c35c5255ce6f205fd68 \
     && rm /tmp/ort.tar /tmp/ort.tar.lzma2
 COPY cargo-cached /usr/local/bin/cargo-cached
-ENTRYPOINT ["sh", "/usr/local/bin/cargo-cached"]
+ENTRYPOINT ["python3", "/usr/local/bin/cargo-cached"]
 CMD ["test", "--locked", "--offline"]

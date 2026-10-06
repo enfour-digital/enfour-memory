@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge complete deterministic query shards; refuse duplicates, gaps and mixed runs."""
+"""Merge complete query groups. Reject repeated queries, missing queries, and different model profiles."""
 import argparse
 import hashlib
 import json
@@ -31,4 +31,4 @@ assert len(profiles)==1, 'mixed retrieval strategies, models or corpora'
 assert set(rows)=={q['id'] for q in queries}, 'incomplete query set'
 with a.output.open('x') as out:
     for q in queries:out.write(json.dumps(rows[q['id']])+'\n')
-print(f'Merged {len(rows)} queries from {len(a.shards)} complete shards.')
+print(f'Merged {len(rows)} queries from {len(a.shards)} complete query groups.')

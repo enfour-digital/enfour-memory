@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Explicit, resumable-by-file provisioning. Runtime never accesses the hub."""
+"""Fetch and verify local model files. The runtime uses only local files."""
+import argparse
 import hashlib
 import json
 import os
@@ -7,13 +8,15 @@ from pathlib import Path
 import sys
 import urllib.request
 
-root = Path(sys.argv[1] if len(sys.argv) > 1 else "models")
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("directory", nargs="?", type=Path, default=Path(__file__).resolve().parent.parent / "models")
+root = parser.parse_args().directory
 for variable, choices in {
     "ENFOUR_EMBEDDING": {"bge-small", "bge-base", "gte-modernbert"},
     "ENFOUR_RERANKER": {"mxbai", "mxbai-base", "gte-modernbert", "jina", "tinybert", "minilm", "minilm-fp32"},
 }.items():
     if os.environ.get(variable) and os.environ[variable] not in choices:
-        raise SystemExit(f"Unknown {variable}; choose from: {', '.join(sorted(choices))}")
+        raise SystemExit(f"Unknown {variable}. Select from: {', '.join(sorted(choices))}")
 specs = {
     "embedding": ("Qdrant/bge-small-en-v1.5-onnx-Q", "aa8f8b060edb00e03bfdd08813a2949946c8ba55", "model_optimized.onnx"),
     "reranker": ("Alibaba-NLP/gte-reranker-modernbert-base", "f7481e6055501a30fb19d090657df9ec1f79ab2c", "onnx/model_quantized.onnx"),
@@ -64,11 +67,11 @@ for role, (repo, revision, weights) in specs.items():
                 while block := r.read(1024 * 1024): f.write(block)
                 f.flush()
                 os.fsync(f.fileno())
-            if not valid(partial): raise SystemExit(f"Checksum mismatch: {partial}")
+            if not valid(partial): raise SystemExit(f"The file hash is incorrect: {partial}")
             partial.replace(target)
         spec["files"][name] = hashlib.sha256(target.read_bytes()).hexdigest()
     manifest[role] = spec
 partial = root / "manifest.json.part"
 partial.write_text(json.dumps(manifest, indent=2) + "\n")
 partial.replace(root / "manifest.json")
-print(f"Verified models ready: {root}")
+print(f"Verified model files: {root}")

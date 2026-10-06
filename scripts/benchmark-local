@@ -1,7 +1,7 @@
-#!/usr/bin/env bash
-set -euo pipefail
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
-exec docker --host unix:///var/run/docker.sock run --rm --network none \
-  --cpus 2 --memory "${ENFOUR_BENCH_MEMORY:-3g}" --user "$(id -u):$(id -g)" \
-  --mount "type=bind,src=$PWD,dst=/workspace" \
-  --entrypoint "/workspace/${ENFOUR_BENCH_BINARY:-target/release/enfour-benchmark}" enfour-memory-rust:1.99.0 "$@"
+#!/usr/bin/env python3
+"""Compatibility entry point for scripts/enfour bench run."""
+import sys
+from _cli import entry
+
+if __name__ == "__main__":
+    raise SystemExit(entry(["bench", "run", *sys.argv[1:]]))

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Register this checkout once in local Codex/Grok, preserving other settings."""
+"""Configure this checkout in a local client. Keep other settings."""
 import argparse
 import datetime
 import json
@@ -10,6 +10,7 @@ import stat
 import tomllib
 
 parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--client", action="append", choices=("codex", "grok"), help="Client to configure. Repeat for more clients. Default: Codex.")
 parser.add_argument("--home", type=Path, default=Path.home())
 parser.add_argument("--codex-source", type=Path, help="Home Manager's source config.toml")
 args = parser.parse_args()
@@ -23,29 +24,31 @@ entry = {
 section = '\n[mcp_servers.enfour-memory]\n' + '\n'.join(
     f"{key} = {json.dumps(value)}" for key, value in entry.items()
 ) + '\n'
-targets = [args.home / ".codex/config.toml", args.home / ".grok/config.toml"]
+targets = [args.home / f".{client}/config.toml" for client in dict.fromkeys(args.client or ["codex"])]
 if args.codex_source:
-    targets.insert(0, args.codex_source)
+    targets = [args.codex_source if target == args.home / ".codex/config.toml" else target for target in targets]
+    if "codex" not in (args.client or ["codex"]):
+        parser.error("Use `--codex-source` with the Codex client.")
 changes = []
 for target in targets:
     if target.is_symlink():
-        raise SystemExit(f"Refusing to replace managed symlink: {target}")
+        raise SystemExit(f"Cannot replace a configuration link: {target}")
     old = target.read_text() if target.exists() else ""
     parsed = tomllib.loads(old)
     existing = parsed.get("mcp_servers", {}).get("enfour-memory")
     if existing is not None:
         if all(existing.get(key) == value for key, value in entry.items()):
-            print(f"Already registered: {target}")
+            print(f"The configuration is unchanged: {target}")
             continue
         legacy = dict(entry, tool_timeout_sec=60)
         if any(existing.get(key) != value for key, value in legacy.items()):
-            raise SystemExit(f"Existing Enfour configuration differs; inspect {target}")
+            raise SystemExit(f"The Enfour configuration is different. Inspect {target}")
         match = re.search(r"(?ms)^\[mcp_servers\.enfour-memory\][^\n]*\n(.*?)(?=^\[|\Z)", old)
         if match is None:
-            raise SystemExit(f"Cannot safely locate the existing Enfour section: {target}")
+            raise SystemExit(f"Cannot find the Enfour section: {target}")
         body, count = re.subn(r"(?m)^(\s*tool_timeout_sec\s*=\s*)60(\s*(?:#.*)?)$", r"\g<1>180\2", match[1])
         if count != 1:
-            raise SystemExit(f"Cannot safely update the existing Enfour timeout: {target}")
+            raise SystemExit(f"Cannot update the Enfour wait limit: {target}")
         new = old[:match.start(1)] + body + old[match.end(1):]
         replacement = dict(existing, tool_timeout_sec=180)
     else:
@@ -78,4 +81,4 @@ if changes:
     manifest.write_text(json.dumps([str(item[0]) for item in changes], indent=2))
     manifest.chmod(0o600)
     print(f"Private backups: {backup}")
-print("Restart the clients to load the MCP entry. No per-project setup is needed.")
+print("Restart the clients to load the MCP entry. Project configuration is not necessary.")
