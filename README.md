@@ -39,7 +39,45 @@ scripts/enfour down
 ```
 
 Docker restarts the service unless you stop it. Stopping the container preserves its database and models.
-This repository does not provide a NixOS provisioning module.
+For NixOS service management, use the module described below.
+
+### NixOS service
+
+Import `nixos/module.nix` into your NixOS configuration. The module creates `enfour-memory.service` and enables it at boot.
+It runs a pinned local container image. It does not pull images at startup.
+
+After building the runtime image, save and register its versioned archive:
+
+```sh
+docker tag enfour-memory:local enfour-memory:0.4.0
+docker save --output enfour-memory-0.4.0-image.tar enfour-memory:0.4.0
+sha256sum enfour-memory-0.4.0-image.tar
+nix-store --add-fixed sha256 enfour-memory-0.4.0-image.tar
+```
+
+Set the archive hash in your configuration:
+
+```nix
+services.enfour-memory = {
+  enable = true;
+  imageFile = pkgs.requireFile {
+    name = "enfour-memory-0.4.0-image.tar";
+    sha256 = "YOUR_ARCHIVE_SHA256";
+    message = "Import the runtime archive with nix-store --add-fixed sha256.";
+  };
+  bindAddress = "127.0.0.1";
+  allowedHosts = [ "localhost" "127.0.0.1" ];
+};
+```
+
+Before activation, stop the Compose service. Copy its complete `state/` and `models/` directories into `/var/lib/enfour-memory/`.
+Set their ownership to the configured `uid` and `gid`. The defaults are `1000` and `100`.
+Keep the original data until you verify the new service. Activation does not migrate data or create an empty database.
+Back up the image archive with the persistent data. Reimport it into the Nix store when you restore a host.
+
+Set the LAN address and allowed hostname for remote clients. The existing token and MCP URL can stay the same.
+Use `systemctl status enfour-memory` and `journalctl -u enfour-memory` to inspect the service.
+Use the systemd service for starts and stops after migration. The Compose scripts still target the original checkout.
 
 ### Access from another computer
 
