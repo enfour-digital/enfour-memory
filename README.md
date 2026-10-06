@@ -132,7 +132,8 @@ Soft deletion preserves history and is not secure erasure. No automatic
 forgetting, transcript ingestion or background LLM consolidation runs.
 Embedding identity includes weights/tokenizer hashes and preprocessing;
 opening with a different identity is rejected to prevent mixed-vector search.
-Model migration tooling is not yet provided.
+Use the offline `reindex` command when changing embeddings; see
+[model maintenance](docs/model-maintenance.md) for backup and rollback steps.
 
 ## Footprint and dependencies
 

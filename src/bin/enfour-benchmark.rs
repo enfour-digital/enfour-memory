@@ -138,6 +138,10 @@ fn main() -> Result<()> {
                 ["baseline", "hybrid", "lexical"].contains(&strategy.as_str()),
                 "unknown strategy"
             );
+            ensure!(
+                strategy == "lexical" || engine.models.is_some(),
+                "semantic benchmark strategies require --models"
+            );
             let query_hash = digest_hex(std::fs::read(&queries)?);
             let complete:bool=engine.store.db.query_row("SELECT (SELECT value FROM metadata WHERE key='benchmark_corpus_complete')=(SELECT value FROM metadata WHERE key='benchmark_corpus') AND (SELECT value FROM metadata WHERE key='benchmark_corpus_count')=CAST((SELECT count(*) FROM memories WHERE deleted=0) AS TEXT)",[],|r|r.get::<_,Option<bool>>(0))?.unwrap_or(false);
             ensure!(
