@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory() as state:
         decoded(rpc("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "enfour-e2e", "version": "1"}}))
         p.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n'); p.stdin.flush()
         tools = decoded(rpc("tools/list", {}))["tools"]
-        assert {t["name"] for t in tools} == {"remember", "recall", "inspect", "forget", "relate", "graph"}
+        assert {t["name"] for t in tools} == {"remember", "recall", "inspect", "forget", "relate", "graph", "validate_memory"}
         def call(name, arguments): return decoded(rpc("tools/call", {"name": name, "arguments": arguments}))
         note = {"scope": "repo:test", "key": "database", "title": "Storage", "content": "Use SQLite WAL", "kind": "decision", "source": "test://user/1", "expected_revision": 0}
         saved = call("remember", note)
@@ -89,7 +89,7 @@ with tempfile.TemporaryDirectory() as state:
         assert code == 200, (code,body)
         if not body.lstrip().startswith(b"{"):
             body = next(line[6:] for line in body.splitlines() if line.startswith(b"data: ") and line[6:].strip().startswith(b"{"))
-        assert len(decoded(json.loads(body))["tools"]) == 6
+        assert len(decoded(json.loads(body))["tools"]) == 7
         assert http("/mcp", headers, b"x" * 70000)[0] == 413
         connector = subprocess.Popen([binary,"--minify","uglify-json","connect","--url",f"http://127.0.0.1:{port}/mcp","--token-file",token_file],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
         try:
@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory() as state:
                 raise AssertionError("connector closed without response")
             bridge_rpc("initialize",{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"bridge-test","version":"1"}},1)
             connector.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n');connector.stdin.flush()
-            assert len(bridge_rpc("tools/list",{},2)["tools"])==6
+            assert len(bridge_rpc("tools/list",{},2)["tools"])==7
             assert bridge_rpc("tools/call",{"name":"graph","arguments":{"scope":"repo:test"}},3)["nodes"]==[]
             # Keep this connector alive across a server restart. The SDK must
             # recover its transport without forcing an agent to reconnect.
@@ -115,7 +115,7 @@ with tempfile.TemporaryDirectory() as state:
                 except OSError: pass
                 time.sleep(.05)
             else: raise AssertionError("restarted HTTP server not ready")
-            assert len(bridge_rpc("tools/list",{},4)["tools"])==6
+            assert len(bridge_rpc("tools/list",{},4)["tools"])==7
             assert bridge_rpc("tools/call",{"name":"graph","arguments":{"scope":"repo:test"}},5)["nodes"]==[]
         finally:
             connector.stdin.close()

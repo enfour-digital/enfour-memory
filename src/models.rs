@@ -90,7 +90,7 @@ impl Models {
                 .files
                 .get("config.json")
                 .is_some_and(|hash| *hash == digest_hex(&config_data)),
-            "embedding config checksum mismatch"
+            "The embedding configuration hash is incorrect."
         );
         let config: serde_json::Value = serde_json::from_slice(&config_data)?;
         let dimensions = config["hidden_size"]
@@ -98,7 +98,7 @@ impl Models {
             .context("embedding hidden_size missing")? as usize;
         ensure!(
             (1..=4096).contains(&dimensions),
-            "unsupported embedding dimension"
+            "The embedding dimension is not supported."
         );
         Ok(Self {
             root: root.into(),
@@ -136,7 +136,7 @@ impl Models {
             .context("file missing from model manifest")?;
         ensure!(
             digest_hex(&data) == *expected,
-            "model checksum mismatch: {role}/{name}"
+            "The model hash is incorrect.\n{role}/{name}"
         );
         Ok(data)
     }
@@ -220,27 +220,17 @@ impl Models {
             .with_truncation(None)
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         tokenizer.with_padding(None);
-        let mut pending = vec![content.to_string()];
-        let mut out = Vec::new();
-        while let Some(part) = pending.pop() {
+        let out = crate::language::text::pack(content, |part| {
             let text = format!("{title}\n{part}");
-            let length = tokenizer
+            Ok(tokenizer
                 .encode(text.as_str(), true)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?
-                .len();
-            if length <= 480 {
-                out.push(text);
-                continue;
-            }
-            let mid = part
-                .char_indices()
-                .nth(part.chars().count() / 2)
-                .map(|(i, _)| i)
-                .unwrap_or(0);
-            ensure!(mid > 0, "title leaves no token budget for content");
-            pending.push(part[mid..].to_string());
-            pending.push(part[..mid].to_string());
-        }
+                .len()
+                <= 480)
+        })?
+        .into_iter()
+        .map(|part| format!("{title}\n{part}"))
+        .collect::<Vec<_>>();
         self.chunks_cache.insert(key, Arc::new(out.clone()));
         Ok(out)
     }

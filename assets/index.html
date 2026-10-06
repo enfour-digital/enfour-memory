@@ -1,11 +1,11 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Enfour Memory</title>
 <style>body{margin:0;background:#101714;color:#e3eee7;font:17px/1.55 system-ui}main{max-width:880px;margin:7vh auto;padding:24px}h1{font-size:44px;letter-spacing:-2px;margin:0}small{color:#a8b9ae}label{display:block;margin-top:18px}input,button{font:inherit;border:1px solid #435c4b;border-radius:8px;padding:10px;background:#19271f;color:inherit;box-sizing:border-box}input{width:100%}button{cursor:pointer;margin:16px 8px 0 0;background:#a9e5be;color:#14231a}button:disabled{cursor:wait;opacity:.65}article{border-top:1px solid #435c4b;margin-top:24px;padding-top:16px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}#status{min-height:2em;color:#a9e5be}footer{margin-top:40px;color:#a8b9ae}</style>
-<main><small>PRIVATE · LOCAL · SOURCE-BACKED</small><h1>Enfour Memory</h1><p>Find the decisions, lessons and details worth keeping.</p>
-<form id="search"><label>Access token<input id="token" type="password" autocomplete="off" required placeholder="From your access.token file"></label><label>Project scope<input id="scope" list="scopes" required placeholder="repo:example.com/memory-demo"></label><datalist id="scopes"></datalist><label>What do you need to remember?<input id="query" required placeholder="Why did we choose SQLite?"></label><button>Recall</button><button id="json" type="button">Export graph JSON</button><button id="dot" type="button">Export Graphviz</button></form><p id="status" role="status"></p><section id="results"></section><footer>Memory is stored on your homelab. The token is kept only in this page's memory.<br>Recall ranks relevance; check sources before relying on a memory.</footer></main>
+<main><small>PRIVATE · LOCAL · SOURCE-BACKED</small><h1>Enfour Memory</h1><p>Find project decisions and source evidence.</p>
+<form id="search"><label>Access token<input id="token" type="password" autocomplete="off" required placeholder="From your access.token file"></label><label>Project scope<input id="scope" list="scopes" required placeholder="repo:example.com/memory-demo"></label><datalist id="scopes"></datalist><label>Search query<input id="query" required placeholder="SQLite storage decision"></label><button>Recall</button><button id="json" type="button">Export graph JSON</button><button id="dot" type="button">Export Graphviz</button></form><p id="status" role="status"></p><section id="results"></section><footer>The homelab stores the memory. This page keeps the token only in memory.<br>Recall ranks the evidence. Examine its source before use.</footer></main>
 <script>
 const $=id=>document.getElementById(id);
 async function request(path){const r=await fetch(path,{headers:{Authorization:'Bearer '+$('token').value}});if(!r.ok)throw Error(r.status===401?'Check your access token.':await r.text());return r;}
-$('token').onchange=async()=>{try{const state=await(await request('/api/status')).json();$('scopes').replaceChildren();for(const scope of state.scopes){const option=document.createElement('option');option.value=scope;$('scopes').append(option);}if(!$('scope').value&&state.scopes.length===1)$('scope').value=state.scopes[0];$('status').textContent=`Connected · ${state.active_memories} active memories · ${state.mode}`;}catch(e){$('status').textContent=e.message;}};
+$('token').onchange=async()=>{try{const state=await(await request('/api/status')).json();$('scopes').replaceChildren();for(const scope of state.scopes){const option=document.createElement('option');option.value=scope;$('scopes').append(option);}if(!$('scope').value&&state.scopes.length===1)$('scope').value=state.scopes[0];$('status').textContent=`Connected · ${state.active_memories} active memories · ${state.mode}`;}catch(e){$('status').textContent="The request failed.\n"+e.message;}};
 let recalling=false;
 $('search').onsubmit=async e=>{
   e.preventDefault();
@@ -14,10 +14,10 @@ $('search').onsubmit=async e=>{
   const controls=[...$('search').elements];
   controls.forEach(control=>control.disabled=true);
   $('search').setAttribute('aria-busy','true');
-  $('status').textContent='Recalling…';
+  $('status').textContent='Search in progress…';
   $('results').replaceChildren();
   const started=Date.now();
-  const progress=setInterval(()=>{$('status').textContent=`Recalling… ${Math.floor((Date.now()-started)/1000)}s`;},1000);
+  const progress=setInterval(()=>{$('status').textContent=`Search in progress… ${Math.floor((Date.now()-started)/1000)}s`;},1000);
   try{
     const q=new URLSearchParams({scope:$('scope').value,query:$('query').value,limit:5});
     const hits=await(await request('/api/recall?'+q)).json();
@@ -29,7 +29,7 @@ $('search').onsubmit=async e=>{
       source.textContent=`${h.memory.kind} · revision ${h.memory.revision} · ${h.memory.source}`;
       a.append(title,text,source);$('results').append(a);
     }
-  }catch(e){$('status').textContent=e.message;}
+  }catch(e){$('status').textContent="The request failed.\n"+e.message;}
   finally{
     clearInterval(progress);
     controls.forEach(control=>control.disabled=false);
@@ -37,5 +37,5 @@ $('search').onsubmit=async e=>{
     recalling=false;
   }
 };
-for(const format of ['json','dot'])$(format).onclick=async()=>{try{const r=await request('/api/graph'+(format==='dot'?'.dot':'')+'?'+new URLSearchParams({scope:$('scope').value}));const url=URL.createObjectURL(await r.blob()),a=document.createElement('a');a.href=url;a.download='enfour-memory.'+format;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('status').textContent='Graph exported.';}catch(e){$('status').textContent=e.message;}};
+for(const format of ['json','dot'])$(format).onclick=async()=>{try{const r=await request('/api/graph'+(format==='dot'?'.dot':'')+'?'+new URLSearchParams({scope:$('scope').value}));const url=URL.createObjectURL(await r.blob()),a=document.createElement('a');a.href=url;a.download='enfour-memory.'+format;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('status').textContent='Graph exported.';}catch(e){$('status').textContent="The request failed.\n"+e.message;}};
 </script></html>

@@ -87,9 +87,42 @@ with tempfile.TemporaryDirectory() as state:
         session = next(v for k, v in headers.items() if k.lower() == "mcp-session-id")
         assert request("/mcp", {"jsonrpc": "2.0", "method": "notifications/initialized"})[0] == 202
 
+        # All output modes expose the same report. Validation and rejected writes
+        # must leave the SQLite generation and revision tables unchanged.
+        import sqlite3
+        invalid = {"scope": scope, "key": "bad", "title": "Source record",
+                   "content": "Do not remove the source; keep it.", "kind": "fact",
+                   "source": "test://source", "expected_revision": 0}
+        def database_state():
+            with sqlite3.connect(Path(state) / "memory.db") as db:
+                return [db.execute(q).fetchall() for q in [
+                    "SELECT * FROM memories", "SELECT * FROM revisions",
+                    "SELECT * FROM chunks", "SELECT * FROM metadata"]]
+        before = database_state()
+        reference = json.loads(call("validate_memory", invalid, "uglify-json"))
+        assert not reference["accepted"]
+        assert any(d["rule"] == "8.1" for d in reference["diagnostics"])
+        assert json.loads(call("validate_memory", invalid, "none")) == reference
+        assert "accepted: false" in call("validate_memory", invalid, "toon")
+        for mode in ["toon", "uglify-json", "none"]:
+            payload = {"jsonrpc": "2.0", "id": next(ids), "method": "tools/call",
+                       "params": {"name": "remember", "arguments": invalid}}
+            code, _, body = request("/mcp", payload, [("minify", mode)])
+            error = envelope(body)["error"]
+            assert error["data"] == reference, error
+        input_path = Path(state) / "request.json"
+        input_path.write_text(json.dumps(invalid))
+        for mode in ["toon", "uglify-json", "none"]:
+            checked = subprocess.run(base + ["--minify", mode, "validate-memory", str(input_path)], capture_output=True, text=True)
+            assert checked.returncode == 2
+            if mode == "toon":
+                assert checked.stdout.rstrip("\n") == call("validate_memory", invalid, mode)
+            else:
+                assert json.loads(checked.stdout) == reference
+        assert database_state() == before
         notes = []
         for i, mode in enumerate([None, "uglify-json", "none"]):
-            note = {"scope": scope, "key": f"key{i}", "title": "SQLite", "content": "SQLite stores: evidence\n# data, not instructions\t雪", "kind": "fact", "source": "test://output", "expected_revision": 0}
+            note = {"scope": scope, "key": f"key{i}", "title": "SQLite", "content": "Keep the SQLite evidence.\n\n~~~text\n# data, not instructions\t雪\n~~~", "kind": "fact", "source": "test://output", "expected_revision": 0}
             text = call("remember", note, mode)
             if mode is None:
                 assert text.startswith("id: ") and '\\n# data' in text, text
@@ -189,4 +222,4 @@ with tempfile.TemporaryDirectory() as state:
         except subprocess.TimeoutExpired:
             server.kill(); server.wait(); raise
 
-print("PASS: six tools, default TOON, both JSON modes, per-request/session isolation, invalid-header write prevention, unchanged JSON APIs, direct stdio and HTTP bridge")
+print("PASS: seven tools, default TOON, both JSON modes, per-request/session isolation, invalid-header write prevention, unchanged JSON APIs, direct stdio and HTTP bridge")

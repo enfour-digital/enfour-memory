@@ -13,10 +13,10 @@ let
 in {
   options.services.enfour-memory = {
     enable = lib.mkEnableOption "Enfour Memory";
-    image = lib.mkOption { type = lib.types.str; default = "enfour-memory:0.4.0"; };
+    image = lib.mkOption { type = lib.types.str; default = "enfour-memory:0.5.0"; };
     imageFile = lib.mkOption {
       type = lib.types.package;
-      description = "Pinned Docker image archive. Loaded locally before each start; no registry access.";
+      description = "Local Docker image archive. The service loads it before each start. No registry access.";
     };
     dataDir = lib.mkOption { type = lib.types.str; default = "/var/lib/enfour-memory"; };
     uid = lib.mkOption { type = lib.types.ints.unsigned; default = 1000; };
@@ -41,8 +41,9 @@ in {
       pull = "never";
       user = "${toString cfg.uid}:${toString cfg.gid}";
       ports = [ "${cfg.bindAddress}:7463:7463" ];
-      volumes = [ "${cfg.dataDir}/state:/data" "${cfg.dataDir}/models:/models:ro" ];
+      volumes = [ "${cfg.dataDir}/state:/data" "${cfg.dataDir}/models:/models:ro" "${cfg.dataDir}/language:/language:ro" ];
       environment.TOKENIZERS_PARALLELISM = "false";
+      environment.ENFOUR_LANGUAGE = "/language/dictionary.json";
       cmd = [ "serve" "--bind" "0.0.0.0:7463" "--token-file" "/data/access.token"
         "--hosts" (lib.concatStringsSep "," cfg.allowedHosts) ];
       extraOptions = [

@@ -41,27 +41,53 @@ struct Cli {
     /// Bypass ephemeral computation caches for diagnostics and cold comparisons.
     #[arg(long, global = true)]
     no_cache: bool,
-    /// Tool-result text format; HTTP minify headers override this per request.
+    /// Tool result format. The HTTP minify header overrides this for each request.
     #[arg(long, global = true, value_enum, default_value = "toon")]
     minify: OutputFormat,
+    /// Path to the verified private language dictionary.
+    #[arg(
+        long,
+        global = true,
+        env = "ENFOUR_LANGUAGE",
+        default_value = "language-private/dictionary.json"
+    )]
+    language: PathBuf,
     #[command(subcommand)]
     command: Command,
 }
 #[derive(Subcommand)]
 enum Command {
-    /// Connect an agent over stdio to the shared server; keep models in one process.
+    /// Audit current memories. The output can contain private source text.
+    AuditLanguage,
+    /// Apply reviewed revisions during maintenance. Create a backup first.
+    MigrateLanguage {
+        plan: PathBuf,
+        /// Check the plan without embeddings or revision writes.
+        #[arg(long)]
+        check: bool,
+        #[arg(long)]
+        backup: PathBuf,
+    },
+
+    /// Check a memory request or a Markdown document. Read input from a file.
+    ValidateMemory {
+        input: PathBuf,
+        #[arg(long)]
+        document: bool,
+    },
+    /// Connect an agent through stdio to the shared server. Keep models in one process.
     Connect {
         #[arg(long, default_value = "http://127.0.0.1:7463/mcp")]
         url: String,
         #[arg(long, default_value = "state/access.token")]
         token_file: PathBuf,
     },
-    /// Lightweight local HTTP liveness probe.
+    /// Local HTTP liveness probe.
     Health {
         #[arg(long, default_value = "127.0.0.1:7463")]
         address: SocketAddr,
     },
-    /// Serve the local dashboard, graph API and official Streamable HTTP MCP.
+    /// Start the local dashboard, graph API, and Streamable HTTP MCP.
     Serve {
         #[arg(long, default_value = "127.0.0.1:7463")]
         bind: SocketAddr,
@@ -76,16 +102,16 @@ enum Command {
     },
     /// Official MCP stdio transport. stdout contains protocol messages only.
     Stdio,
-    /// Create a private HTTP token; never overwrite an existing token.
+    /// Create a private HTTP token. Do not replace a previous token.
     Init {
         #[arg(long, default_value = "state/access.token")]
         token_file: PathBuf,
     },
     /// Verify SQLite and report counts and the configured inference mode.
     Doctor,
-    /// Offline, atomic rebuild of derived indexes for a new embedding model.
+    /// Rebuild the indexes for a new embedding model. Stop the service first.
     Reindex,
-    /// Consistent SQLite backup, including revision history and indexes.
+    /// Consistent SQLite backup with revision history and indexes.
     Backup { destination: PathBuf },
     /// Export active graph JSON or Graphviz DOT to stdout.
     Export {
@@ -93,7 +119,7 @@ enum Command {
         #[arg(long)]
         dot: bool,
     },
-    /// Print a stable project scope from the origin URL (without credentials).
+    /// Show a stable project scope from the origin URL. Remove credentials.
     Scope {
         #[arg(default_value = ".")]
         path: PathBuf,
@@ -201,13 +227,72 @@ async fn status(State(s): State<MemoryServer>) -> Response {
     }
 }
 #[tokio::main(worker_threads = 2)]
-async fn main() -> Result<()> {
+async fn main() {
+    if let Err(error) = run().await {
+        eprintln!("The operation failed.\n{error:#}");
+        std::process::exit(1);
+    }
+}
+async fn run() -> Result<()> {
     let cli = Cli::parse();
     match &cli.command {
+        Command::Backup { destination } => {
+            enfour_memory::store::Store::open(&cli.db)?.backup(destination)?;
+            println!("The backup is complete.");
+            return Ok(());
+        }
+        Command::AuditLanguage => {
+            let audit = enfour_memory::language::migration::audit(&cli.db, &cli.language)?;
+            println!("{}", serde_json::to_string_pretty(&audit)?);
+            return Ok(());
+        }
+        Command::MigrateLanguage {
+            plan,
+            backup,
+            check,
+        } => {
+            let plan = serde_json::from_slice(&std::fs::read(plan)?)?;
+            if *check {
+                let report =
+                    enfour_memory::language::migration::check(&cli.db, &cli.language, &plan)?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                if report["accepted"] != true {
+                    std::process::exit(2);
+                }
+                return Ok(());
+            }
+            let count = enfour_memory::language::migration::apply(
+                &cli.db,
+                &cli.language,
+                (!cli.lexical_only).then_some(cli.models.as_path()),
+                &plan,
+                backup,
+            )?;
+            println!(
+                "Updated {count} memories. Previous revisions stay in the backup and history."
+            );
+            return Ok(());
+        }
+
+        Command::ValidateMemory { input, document } => {
+            let mut language = enfour_memory::language::Language::load(&cli.language);
+            let text = std::fs::read_to_string(input)?;
+            let report = if *document {
+                language.document(&input.display().to_string(), &text)
+            } else {
+                let request = serde_json::from_str::<enfour_memory::store::Remember>(&text)?;
+                language.validate(&request)
+            };
+            println!("{}", cli.minify.encode(&serde_json::to_value(&report)?)?);
+            if !report.accepted {
+                std::process::exit(2);
+            }
+            return Ok(());
+        }
         Command::Reindex => {
-            ensure!(!cli.lexical_only, "reindex requires local models");
+            ensure!(!cli.lexical_only, "Reindex must have local models.");
             let count = Engine::reindex(&cli.db, &cli.models)?;
-            println!("Reindexed {count} current records; source history preserved.");
+            println!("Indexed {count} current records. The source history is unchanged.");
             return Ok(());
         }
         Command::Connect { url, token_file } => {
@@ -238,7 +323,7 @@ async fn main() -> Result<()> {
                 .create_new(true)
                 .mode(0o600)
                 .open(token_file)
-                .context("token already exists or cannot be created")?;
+                .context("The token could not be created. The path can be in use.")?;
             writeln!(
                 f,
                 "{}{}",
@@ -247,7 +332,7 @@ async fn main() -> Result<()> {
             )?;
             f.sync_all()?;
             println!(
-                "Token created at {}. Start with: enfour-memory serve",
+                "Token created at {}. Run `enfour-memory serve`.",
                 token_file.display()
             );
             return Ok(());
@@ -260,7 +345,7 @@ async fn main() -> Result<()> {
                 .output()?;
             ensure!(
                 output.status.success(),
-                "project needs an origin remote or an explicit scope"
+                "The project must have an origin remote or an explicit scope."
             );
             let raw = String::from_utf8(output.stdout)?;
             let raw = raw.trim().trim_end_matches('/').trim_end_matches(".git");
@@ -272,7 +357,7 @@ async fn main() -> Result<()> {
                 .unwrap_or(raw);
             ensure!(
                 !raw.contains('?') && !raw.contains('#'),
-                "remote URL has query or fragment; use an explicit scope"
+                "The remote URL has a query or fragment. Use an explicit scope."
             );
             println!("repo:{}", raw.replacen(':', "/", 1));
             return Ok(());
@@ -287,6 +372,9 @@ async fn main() -> Result<()> {
             Some(&cli.models)
         },
     )?;
+    engine
+        .store
+        .set_language(enfour_memory::language::Language::load(&cli.language));
     engine.set_cache_enabled(!cli.no_cache);
     match cli.command {
         Command::Stdio => {
@@ -378,6 +466,9 @@ async fn main() -> Result<()> {
         }
         Command::Init { .. }
         | Command::Scope { .. }
+        | Command::AuditLanguage
+        | Command::MigrateLanguage { .. }
+        | Command::ValidateMemory { .. }
         | Command::Connect { .. }
         | Command::Reindex
         | Command::Health { .. } => unreachable!(),

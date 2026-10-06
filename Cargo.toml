@@ -1,6 +1,6 @@
 [package]
 name = "enfour-memory"
-version = "0.4.0"
+version = "0.5.0"
 default-run = "enfour-memory"
 edition = "2024"
 rust-version = "1.99"
@@ -9,6 +9,10 @@ description = "Small, local, source-backed memory for coding agents"
 
 [dependencies]
 anyhow = "1"
+syn = { version = "2", optional = true, features = ["full", "visit"] }
+pulldown-cmark = "=0.13.4"
+harper-core = { version = "=2.11.0", default-features = false, features = ["concurrent"] }
+quick-xml = "0.39"
 moka = { version = "=0.12.16", default-features = false, features = ["sync"] }
 axum = "0.8.9"
 clap = { version = "4", features = ["derive", "env"] }
@@ -26,6 +30,15 @@ tokio-util = "0.7"
 tower-http = { version = "0.7.1", features = ["limit", "timeout"] }
 subtle = "2.6.1"
 uuid = { version = "1", features = ["v4"] }
+
+[features]
+test-support = []
+product-check = ["dep:syn"]
+
+[[bin]]
+name = "enfour-product-check"
+path = "src/bin/enfour-product-check.rs"
+required-features = ["product-check"]
 
 [dev-dependencies]
 tempfile = "3"

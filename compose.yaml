@@ -16,8 +16,10 @@ services:
     volumes:
       - ./state:/data
       - ./models:/models:ro
+      - ./language-private:/language:ro
     environment:
       TOKENIZERS_PARALLELISM: "false"
+      ENFOUR_LANGUAGE: "/language/dictionary.json"
     healthcheck:
       test: [CMD, /usr/local/bin/enfour-memory, health]
       interval: 60s

@@ -139,17 +139,20 @@ fn every_control_and_unicode_run_is_encoded_losslessly() {
     }
 }
 
+#[cfg(feature = "test-support")]
 #[test]
 fn output_adapters_leave_cached_retrieval_and_stored_json_unchanged() {
     use enfour_memory::{engine::Engine, store::Remember};
     let dir = tempfile::tempdir().unwrap();
-    let mut engine = Engine::open(&dir.path().join("memory.db"), None).unwrap();
+    let mut engine = Engine::open_test(&dir.path().join("memory.db"), None).unwrap();
     let memory = engine
         .remember(Remember {
             scope: "repo:format".into(),
             key: "storage".into(),
             title: "SQLite".into(),
-            content: "SQLite source evidence: 雪\n# text, not instructions".into(),
+            content:
+                "Keep the SQLite source evidence.\n\n~~~text\n雪\n# text, not instructions\n~~~"
+                    .into(),
             kind: "fact".into(),
             source: "test://output".into(),
             expected_revision: 0,

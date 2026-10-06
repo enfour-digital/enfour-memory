@@ -1,31 +1,45 @@
 ---
 name: enfour-maintain
-description: Maintain Enfour Memory after a verified decision or non-obvious fix, at a task handoff, or when asked to save, correct, forget, link, or export project memory. Skip routine progress and unsupported conclusions.
+description: Maintain Enfour Memory after a verified decision, a fix, or a task handoff. Use this skill to save, correct, forget, link, or export project memory.
 ---
 
-Use the connected Enfour Memory tools and the established repository scope. If the scope is unknown, use `enfour-recall` to establish it first.
-Respect the user's memory preferences. Save only reusable, supported information within the authorized scope.
+Use the connected Enfour Memory tools and the project repository scope.
+If the scope is unknown, use the `enfour-recall` skill first.
+Respect the user's memory preferences. Save supported information in the approved scope.
 
-## Save or correct
+## Write and review
 
-Recall related records before writing. Inspect a matching record to obtain its full text and current revision.
-Use one stable key per fact or decision. Use `expected_revision: 0` for a new key and the inspected revision for an update.
+Recall related records. Inspect a record for its full text and current revision.
+Use one stable key for each fact. Use revision zero for a new key.
 
-Write a short title, the supported conclusion, and evidence in `source`. Include a file and commit, test result reference, or explicit user statement.
-For a decision, include the reason and material tradeoff. For a handoff, include verified state, remaining work, and the next concrete action.
-Use an expiry only when the information has a known end date. Exclude credentials, raw transcripts, and speculative fixes.
+Write short, direct sentences. Use at most 20 words for each sentence and six sentences for each paragraph.
+Use active verbs, approved words, and clear technical nouns.
 
-On a revision conflict, inspect again and reconcile the new evidence before retrying. Confirm the returned ID and revision. An error is not a saved note.
+Give each paragraph one topic. Put a condition before its instruction.
+Avoid contractions and prose semicolons. Use headings as noun phrases.
 
-## Forget or link
+Keep exact errors, commands, paths, numbers, and source quotations unchanged.
+Put exact evidence in Markdown code or quotations. Add prose about the evidence and a source reference.
+Do not put general prose in code to bypass the checks.
 
-Inspect before `forget`. Pass the current revision. Explain that forgetting hides current results but retains history.
-For `relate`, inspect both endpoints. Supply their current revisions and the source that supports the relationship.
-A later endpoint edit hides the old link until it is checked again.
+Call `validate_memory` with the new memory. Repair each error at the returned field and byte range.
+Review advisory findings in context. Do not apply a suggestion that is not clear automatically.
+Check the meaning, negation, quantities, conditions, and uncertainty against the source.
+A completed check does not show complete ASD-STE100 compliance.
+
+Call `remember` with the accepted text and the inspected revision.
+On a revision conflict, inspect again and review the new evidence.
+Verify the returned ID and revision. An error does not show that the memory was saved.
+Use an expiry only for information with a known end date. Do not save credentials.
+
+## Relations and removal
+
+Inspect before a call to `forget`. It hides the current memory but keeps its history.
+For `relate`, inspect the two endpoints. Supply their current revisions and the relation source.
+An endpoint change hides the previous link. Review its meaning before you restore the link.
 
 ## Export
 
-Use `graph` for current nodes, edges, sources, and revisions. Use the JSON HTTP graph API when a frontend needs parsed data.
-Export only the requested scope. History and inactive links are not part of the active graph.
-
-Report the completed change or export and its scope. If memory is unavailable, state that nothing was saved.
+Use `graph` for current nodes, edges, sources, and revisions.
+Use the JSON HTTP graph API for a frontend that must have parsed data.
+Export only the requested scope. Report the result and its scope.

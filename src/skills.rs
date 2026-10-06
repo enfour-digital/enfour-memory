@@ -69,6 +69,14 @@ pub fn routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
     router
 }
 
+const INSTALL_INSTRUCTIONS: [&str; 4] = [
+    "Run on the agent's computer. Install Node.js and npm first. Review the two skills before installation.",
+    "The -g option installs for all projects. Remove -g to install in the current project. Change --agent for a different supported agent.",
+    "Connect the memory MCP endpoint with its bearer token. Skill installation does not give database access.",
+    "Restart the agent after installation. Then remove the installation endpoint from the client.",
+];
+const MANUAL_INSTALL_INSTRUCTIONS: &str = "Download each SKILL.md from the index into ~/.agents/skills/<skill-name>/SKILL.md for Codex. Keep the folder names. Review a previous file before replacement.";
+
 #[derive(Clone)]
 pub struct SkillServer {
     tool_router: ToolRouter<Self>,
@@ -110,7 +118,7 @@ fn source_origin(source: &str) -> Result<String, ErrorData> {
 impl SkillServer {
     #[tool(
         annotations(read_only_hint = true, open_world_hint = false),
-        description = "Return skills.sh installation instructions and bundled skill metadata. Does not install files or access memory. Run the command on the client computer only when the user requests installation."
+        description = "Return skills.sh installation instructions and included skill metadata. Does not install files or access memory. Run the command on the client computer only when the user requests installation."
     )]
     async fn install_skills(
         &self,
@@ -127,15 +135,10 @@ impl SkillServer {
         };
         let value = json!({
             "command": format!("DISABLE_TELEMETRY=1 npx skills add {quoted} --agent codex --skill enfour-recall enfour-maintain -g"),
-            "instructions": [
-                "Run on the agent's computer. Node.js and npm are required. Review the two skills before confirming installation.",
-                "The -g option installs for all projects. Omit -g to install in the current project. Change --agent for another supported agent.",
-                "Connect the memory MCP endpoint separately with its bearer token. Installing skills does not grant database access.",
-                "Restart the agent after installation. The installation endpoint can then be removed from the client."
-            ],
+            "instructions": INSTALL_INSTRUCTIONS,
             "index_url": format!("{origin}{ROOT}/index.json"),
             "skills": INDEX["skills"],
-            "manual_install": "Download each SKILL.md from the index into ~/.agents/skills/<skill-name>/SKILL.md for Codex. Preserve the folder names. Review an existing file before replacing it.",
+            "manual_install": MANUAL_INSTALL_INSTRUCTIONS,
         });
         Ok(CallToolResult::success(vec![ContentBlock::text(
             format
@@ -148,7 +151,7 @@ impl SkillServer {
 impl ServerHandler for SkillServer {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("Public Enfour Memory skill installation guide. Call install_skills with this server's HTTP(S) origin. This endpoint has no memory tools and cannot execute commands.")
+            .with_instructions("Public Enfour Memory skill installation instructions. Call install_skills with this server's HTTP(S) origin. This endpoint has no memory tools and cannot execute commands.")
             .with_server_info(Implementation::new("Enfour Memory Skills", env!("CARGO_PKG_VERSION")))
     }
 }

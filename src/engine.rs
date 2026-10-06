@@ -8,6 +8,7 @@ use rusqlite::OptionalExtension;
 use std::{path::Path, sync::Arc};
 
 pub const DEFAULT_RERANK_CANDIDATES: usize = 64;
+pub const CHUNKING_IDENTITY: &str = "markdown-sentence-480-v1";
 
 #[derive(Hash, PartialEq, Eq)]
 struct RecallKey {
@@ -22,6 +23,23 @@ fn hit_bytes(h: &Hit) -> usize {
     let m = &h.memory;
     size_of::<Hit>()
         + h.excerpt.len()
+        + m.language.as_ref().map_or(0, |r| {
+            size_of::<crate::language::Report>()
+                + r.review.len()
+                + r.versions.policy.len()
+                + r.versions.validator.len()
+                + r.versions.dictionary.len()
+                + r.versions.glossary.len()
+                + r.diagnostics
+                    .iter()
+                    .map(|d| {
+                        size_of::<crate::language::Diagnostic>()
+                            + d.field.len()
+                            + d.rule.len()
+                            + d.guidance.len()
+                    })
+                    .sum::<usize>()
+        })
         + [
             &m.id, &m.scope, &m.key, &m.title, &m.content, &m.kind, &m.source,
         ]
@@ -59,13 +77,32 @@ impl Engine {
                 .optional()?;
             ensure!(
                 old.as_ref().is_none_or(|s| s == &m.identity),
-                "embedding model changed; stop the service and run reindex first"
+                "The embedding model changed. Stop the service and run reindex first."
             );
             store.db.execute(
                 "INSERT OR IGNORE INTO metadata VALUES('embedding_identity',?)",
                 [&m.identity],
             )?;
         }
+        let old_chunker: Option<String> = store
+            .db
+            .query_row(
+                "SELECT value FROM metadata WHERE key='chunking_identity'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let count: i64 = store
+            .db
+            .query_row("SELECT count(*) FROM chunks", [], |r| r.get(0))?;
+        ensure!(
+            count == 0 || old_chunker.as_deref() == Some(CHUNKING_IDENTITY),
+            "The chunk format changed. Stop the service and rebuild the index."
+        );
+        store.db.execute(
+            "INSERT OR IGNORE INTO metadata VALUES('chunking_identity',?)",
+            [CHUNKING_IDENTITY],
+        )?;
         Ok(Self {
             store,
             models,
@@ -79,14 +116,23 @@ impl Engine {
             cached_generation: None,
         })
     }
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn open_test(db: &Path, models: Option<&Path>) -> Result<Self> {
+        let mut engine = Self::open(db, models)?;
+        engine
+            .store
+            .set_language(crate::language::Language::test_fixture());
+        Ok(engine)
+    }
     pub fn set_cache_enabled(&mut self, enabled: bool) {
+        self.store.language.set_cache_enabled(enabled);
         self.results.set_enabled(enabled);
         if let Some(models) = self.models.as_mut() {
             models.set_cache_enabled(enabled);
         }
     }
     pub fn cache_info(&self) -> serde_json::Value {
-        serde_json::json!({"results":self.results.info(),"models":self.models.as_ref().map(Models::cache_info)})
+        serde_json::json!({"language":self.store.language.info(),"results":self.results.info(),"models":self.models.as_ref().map(Models::cache_info)})
     }
     /// Offline maintenance: replace derived chunks atomically, retaining all source history.
     pub fn reindex(db: &Path, model_path: &Path) -> Result<usize> {
@@ -125,21 +171,20 @@ impl Engine {
             }
         }
         tx.execute("INSERT INTO metadata VALUES('embedding_identity',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[models.identity])?;
+        tx.execute("INSERT INTO metadata VALUES('chunking_identity',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[CHUNKING_IDENTITY])?;
         tx.commit()?;
         Ok(count)
     }
     pub fn remember(&mut self, r: Remember) -> Result<Memory> {
-        Store::validate(&r)?;
+        self.store.language.require(&r)?;
         // Check the actual tokenizer budget; preserve the complete source record.
         let heading = format!("{} — {}", r.key, r.title);
         let texts = if let Some(m) = self.models.as_mut() {
             m.chunks(&heading, &r.content)?
         } else {
-            r.content
-                .chars()
-                .collect::<Vec<_>>()
-                .chunks(700)
-                .map(|c| format!("{}\n{}", heading, c.iter().collect::<String>()))
+            crate::language::text::pack(&r.content, |s| Ok(s.chars().count() <= 700))?
+                .into_iter()
+                .map(|s| format!("{heading}\n{s}"))
                 .collect()
         };
         let vectors = if let Some(m) = self.models.as_mut() {
@@ -244,6 +289,6 @@ impl Engine {
             hits.truncate(limit);
             return Ok(hits);
         }
-        anyhow::bail!("memory expiry changed during retrieval; retry")
+        anyhow::bail!("The memory expiry changed during retrieval. Try again.")
     }
 }

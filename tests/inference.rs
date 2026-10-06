@@ -1,3 +1,4 @@
+#![cfg(feature = "test-support")]
 use enfour_memory::{engine::Engine, store::Remember};
 use std::{path::Path, time::Instant};
 #[test]
@@ -10,7 +11,7 @@ fn local_inference_retrieval_and_footprint() {
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "models".into());
     let mut engine =
-        Engine::open(&dir.path().join("memory.db"), Some(Path::new(&model_dir))).unwrap();
+        Engine::open_test(&dir.path().join("memory.db"), Some(Path::new(&model_dir))).unwrap();
     let notes = [
         (
             "database",

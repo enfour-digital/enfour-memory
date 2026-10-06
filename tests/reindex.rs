@@ -1,3 +1,4 @@
+#![cfg(feature = "test-support")]
 use enfour_memory::{engine::Engine, store::Remember};
 use std::path::PathBuf;
 
@@ -12,7 +13,7 @@ fn reindex_is_exclusive_atomic_and_preserves_history() {
     );
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("index.db");
-    let mut engine = Engine::open(&db, None).unwrap();
+    let mut engine = Engine::open_test(&db, None).unwrap();
     let note = Remember {
         scope: "repo:reindex".into(),
         key: "storage".into(),
@@ -46,7 +47,7 @@ fn reindex_is_exclusive_atomic_and_preserves_history() {
     .unwrap();
     // Missing weights fail after the transaction's DELETE, which must roll back.
     assert!(Engine::reindex(&db, &broken).is_err());
-    let restored = Engine::open(&db, None).unwrap();
+    let restored = Engine::open_test(&db, None).unwrap();
     restored.store.check().unwrap();
     assert_eq!(restored.store.stats().unwrap()["chunks"], 1);
     assert_eq!(
@@ -59,7 +60,7 @@ fn reindex_is_exclusive_atomic_and_preserves_history() {
     );
     drop(restored);
     assert_eq!(Engine::reindex(&db, &root).unwrap(), 1);
-    let mut indexed = Engine::open(&db, Some(&root)).unwrap();
+    let mut indexed = Engine::open_test(&db, Some(&root)).unwrap();
     assert_eq!(indexed.store.stats().unwrap()["embedded_chunks"], 1);
     assert_eq!(
         indexed

@@ -1,3 +1,4 @@
+#![cfg(feature = "test-support")]
 use enfour_memory::{
     engine::Engine,
     store::{Relation, Remember, Store},
@@ -17,7 +18,7 @@ fn note(key: &str) -> Remember {
 #[test]
 fn larger_candidate_pool_preserves_scope_and_current_revision_filters() {
     let dir = tempfile::tempdir().unwrap();
-    let mut engine = Engine::open(&dir.path().join("candidates.db"), None).unwrap();
+    let mut engine = Engine::open_test(&dir.path().join("candidates.db"), None).unwrap();
     for i in 0..40 {
         engine.remember(note(&format!("candidate-{i}"))).unwrap();
     }
@@ -55,7 +56,7 @@ fn larger_candidate_pool_preserves_scope_and_current_revision_filters() {
 fn revisions_isolation_graph_and_backup() {
     let d = tempfile::tempdir().unwrap();
     let db = d.path().join("memory.db");
-    let mut e = Engine::open(&db, None).unwrap();
+    let mut e = Engine::open_test(&db, None).unwrap();
     let a = e.remember(note("database")).unwrap();
     let b = e.remember(note("reliability")).unwrap();
     assert_eq!(e.recall("repo:example/a", "SQLite", 5).unwrap().len(), 2);
@@ -82,7 +83,7 @@ fn revisions_isolation_graph_and_backup() {
             .len(),
         1
     );
-    let mut other = Engine::open(&db, None).unwrap();
+    let mut other = Engine::open_test(&db, None).unwrap();
     let mut updated = note("database");
     updated.expected_revision = 1;
     updated.content = "Use SQLite plus consistent online backups".into();
@@ -109,7 +110,7 @@ fn revisions_isolation_graph_and_backup() {
 #[test]
 fn rejects_invalid_writes_and_expires_recall() {
     let d = tempfile::tempdir().unwrap();
-    let mut e = Engine::open(&d.path().join("memory.db"), None).unwrap();
+    let mut e = Engine::open_test(&d.path().join("memory.db"), None).unwrap();
     let mut r = note("temporary");
     r.expires_at = Some(1);
     assert!(e.remember(r).is_err());
@@ -133,7 +134,7 @@ fn rejects_invalid_writes_and_expires_recall() {
 #[test]
 fn lexical_recall_handles_identifiers_and_inflections() {
     let d = tempfile::tempdir().unwrap();
-    let mut e = Engine::open(&d.path().join("memory.db"), None).unwrap();
+    let mut e = Engine::open_test(&d.path().join("memory.db"), None).unwrap();
     let mut r = note("rustc-error-E0502");
     r.content = "Compile with the shared cache after fixing the borrow conflict.".into();
     let m = e.remember(r).unwrap();

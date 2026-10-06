@@ -29,12 +29,14 @@ pub struct Memory {
     pub updated_at: i64,
     pub expires_at: Option<i64>,
     pub deleted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<crate::language::Report>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Remember {
-    /// Stable repository identity, or explicit personal scope. Never infer from a folder basename.
+    /// Stable repository identity or explicit personal scope. Do not use a folder basename as the repository identity.
     pub scope: String,
-    /// Stable fact key. Reusing it requires the current revision; unrelated facts need different keys.
+    /// Stable fact key. Updates must use the current revision. Different facts must use different keys.
     pub key: String,
     pub title: String,
     /// One supported fact, decision, lesson, or checkpoint. Never store credentials.
@@ -43,7 +45,7 @@ pub struct Remember {
     pub kind: String,
     /// Evidence URI or path plus line/commit, or an explicit user statement reference.
     pub source: String,
-    /// 0 for a new key, otherwise the revision returned by recall/inspect.
+    /// Use zero for a new key. For an update, use the revision from recall or inspect.
     pub expected_revision: i64,
     pub expires_at: Option<i64>,
 }
@@ -61,7 +63,7 @@ fn memory_header<S: serde::Serializer>(
     m: &Memory,
     serializer: S,
 ) -> std::result::Result<S::Ok, S::Error> {
-    serde_json::json!({"id":m.id,"scope":m.scope,"key":m.key,"title":m.title,"kind":m.kind,"source":m.source,"revision":m.revision,"created_at":m.created_at,"updated_at":m.updated_at,"expires_at":m.expires_at,"deleted":m.deleted,"content_bytes":m.content.len()}).serialize(serializer)
+    serde_json::json!({"id":m.id,"scope":m.scope,"key":m.key,"title":m.title,"kind":m.kind,"source":m.source,"revision":m.revision,"created_at":m.created_at,"updated_at":m.updated_at,"expires_at":m.expires_at,"deleted":m.deleted,"content_bytes":m.content.len(),"language":m.language.as_ref().map(|report| serde_json::json!({"accepted":report.accepted,"versions":report.versions,"advisory_count":report.diagnostics.len()}))}).serialize(serializer)
 }
 pub struct Chunk {
     pub text: String,
@@ -78,6 +80,7 @@ pub struct Relation {
     pub to_revision: i64,
 }
 pub struct Store {
+    pub(crate) language: crate::language::Language,
     pub db: Connection,
 }
 impl Store {
@@ -107,7 +110,7 @@ impl Store {
         let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         ensure!(
             version <= 1,
-            "database is newer than this engine; refusing to open"
+            "The database version is too new for this engine."
         );
         db.execute_batch("BEGIN IMMEDIATE;
           CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY, scope TEXT NOT NULL, key TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, deleted INTEGER NOT NULL, expires_at INTEGER, UNIQUE(scope,key));
@@ -134,9 +137,16 @@ impl Store {
             }
         }
         db.execute_batch("COMMIT;")?;
-        Ok(Self { db })
+        Ok(Self {
+            db,
+            language: crate::language::Language::load(
+                &std::env::var_os("ENFOUR_LANGUAGE")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| "language-private/dictionary.json".into()),
+            ),
+        })
     }
-    /// Read inside the caller's transaction so version and candidates share a snapshot.
+    /// Read in the transaction. The version and candidates must share a snapshot.
     pub(crate) fn retrieval_state(
         &self,
         scope: &str,
@@ -167,18 +177,24 @@ impl Store {
         }
         ensure!(
             ["fact", "preference", "decision", "lesson", "checkpoint"].contains(&r.kind.as_str()),
-            "unsupported kind"
+            "The memory kind is not supported."
         );
         ensure!(r.expected_revision >= 0, "revision must be nonnegative");
         ensure!(
             r.expires_at.is_none_or(|t| t > now()),
-            "expiry must be in the future"
+            "The expiry must be after the current time."
         );
         Ok(())
     }
+    pub fn validate_memory(&mut self, r: &Remember) -> crate::language::Report {
+        self.language.validate(r)
+    }
+    pub fn set_language(&mut self, language: crate::language::Language) {
+        self.language = language;
+    }
     pub fn put(&mut self, r: Remember, chunks: &[Chunk]) -> Result<Memory> {
-        Self::validate(&r)?;
-        ensure!(!chunks.is_empty(), "memory must have searchable chunks");
+        let language = Some(self.language.require(&r)?);
+        ensure!(!chunks.is_empty(), "The memory must have indexed chunks.");
         let tx = self
             .db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -193,11 +209,12 @@ impl Store {
         let actual = old.as_ref().map_or(0, |m| m.revision);
         ensure!(
             r.expected_revision == actual,
-            "revision conflict: expected {}, current {}; inspect before replacing",
+            "Memory revision conflict. Required revision: {}. Current revision: {}. Inspect the memory before replacement.",
             r.expected_revision,
             actual
         );
         let m = Memory {
+            language,
             id: old
                 .as_ref()
                 .map_or_else(|| uuid::Uuid::new_v4().to_string(), |m| m.id.clone()),
@@ -255,6 +272,7 @@ impl Store {
             .collect()
     }
     pub fn forget(&mut self, scope: &str, id: &str, revision: i64) -> Result<Memory> {
+        self.language.require_available()?;
         let tx = self
             .db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -339,7 +357,7 @@ impl Store {
                 let bytes: Vec<u8> = row.get(1)?;
                 ensure!(
                     bytes.len() == v.len() * 4,
-                    "embedding dimension mismatch; reindex required"
+                    "The embedding dimensions are not equal. Rebuild the index."
                 );
                 let score: f32 = bytes
                     .as_chunks::<4>()
@@ -409,6 +427,7 @@ impl Store {
         )
     }
     pub fn relate(&mut self, mut r: Relation) -> Result<serde_json::Value> {
+        self.language.require_available()?;
         ensure!(
             [
                 "supports",
@@ -418,18 +437,18 @@ impl Store {
                 "related_to"
             ]
             .contains(&r.kind.as_str()),
-            "unsupported relation kind"
+            "The relation kind is not supported."
         );
         ensure!(
             !r.source.trim().is_empty() && r.source.len() <= 2000,
-            "relation needs evidence"
+            "The relation must have evidence."
         );
         // Take a write reservation before checking endpoint revisions.
         self.db.execute_batch("BEGIN IMMEDIATE")?;
         let result = (|| {
             let a = self.get(&r.scope, &r.from)?;
             let b = self.get(&r.scope, &r.to)?;
-            ensure!(a.id != b.id, "self links are not supported");
+            ensure!(a.id != b.id, "A relation must link different records.");
             ensure!(
                 !a.deleted
                     && !b.deleted
@@ -534,12 +553,12 @@ mod cache_snapshot_tests {
     fn generation_and_candidates_share_a_snapshot_across_external_commit() {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("db");
-        let mut writer = Engine::open(&db, None).unwrap();
+        let mut writer = Engine::open_test(&db, None).unwrap();
         let mut note = Remember {
             scope: "repo:snapshot".into(),
             key: "a".into(),
             title: "a".into(),
-            content: "SQLite evidence".into(),
+            content: "Keep SQLite evidence.".into(),
             kind: "fact".into(),
             source: "test://snapshot".into(),
             expected_revision: 0,
