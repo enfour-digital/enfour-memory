@@ -59,6 +59,6 @@ manifest = dict(upstream='https://github.com/snap-research/locomo',revision=REVI
                 license='CC-BY-NC-4.0',source_sha256=hashlib.sha256((root/'locomo10.json').read_bytes()).hexdigest(),
                 development_conversations=sorted(dev),documents=len(corpus),
                 queries={k:len(v) for k,v in queries.items()},excluded=len(excluded),
-                hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in root.glob('*.jsonl')})
+                hashes={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in ['corpus.jsonl','dev.queries.jsonl','test.queries.jsonl','labels.jsonl','excluded.jsonl']})
 (root/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 print(json.dumps(manifest,indent=2))
