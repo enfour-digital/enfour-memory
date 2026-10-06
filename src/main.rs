@@ -173,6 +173,11 @@ async fn status(State(s): State<MemoryServer>) -> Response {
             }
             .into();
             v["models"] = e.models.as_ref().map(|m| m.info()).into();
+            v["rerank_candidates"] = e
+                .models
+                .as_ref()
+                .map(|_| enfour_memory::engine::DEFAULT_RERANK_CANDIDATES)
+                .into();
             Ok(v)
         })
         .await

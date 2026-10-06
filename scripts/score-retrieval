@@ -45,6 +45,8 @@ def main():
     groups=collections.defaultdict(list)
     for r in runs:
         assert r['query_file_sha256']==expected, 'queries changed'
+        if 'corpus_sha256' in r:
+            assert r['corpus_sha256']==manifest['hashes']['corpus.jsonl'], 'wrong corpus'
         label=labels[r['id']]
         assert r['scope']==label['scope'], 'scope mismatch'
         row=metrics(label['gold'],r['hits'])

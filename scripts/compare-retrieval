@@ -23,10 +23,15 @@ def read(path):
 labels={key:value for key,value in read(args.dataset/'labels.jsonl').items() if value['split']==args.split}
 a,b=read(args.baseline),read(args.candidate)
 assert set(a)==set(b)==set(labels)
+manifest=json.loads((args.dataset/'manifest.json').read_text())
+expected_query_hash=manifest['hashes'][args.split+'.queries.jsonl']
 groups=collections.defaultdict(list)
 for key,label in labels.items():
     assert a[key]['scope']==b[key]['scope']==label['scope']
-    assert a[key]['query_file_sha256']==b[key]['query_file_sha256']
+    assert a[key]['query_file_sha256']==b[key]['query_file_sha256']==expected_query_hash
+    for row in [a[key],b[key]]:
+        if 'corpus_sha256' in row:
+            assert row['corpus_sha256']==manifest['hashes']['corpus.jsonl'], 'wrong corpus'
     ma,mb=scorer.metrics(label['gold'],a[key]['hits']),scorer.metrics(label['gold'],b[key]['hits'])
     groups[label['scope'] if args.unit=='conversation' else key].append({m:mb[m]-ma[m] for m in ma})
 units=list(groups);rng=random.Random(20261006)

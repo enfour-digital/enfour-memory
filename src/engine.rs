@@ -6,6 +6,8 @@ use anyhow::{Result, ensure};
 use rusqlite::OptionalExtension;
 use std::path::Path;
 
+pub const DEFAULT_RERANK_CANDIDATES: usize = 64;
+
 pub struct Engine {
     pub store: Store,
     pub models: Option<Models>,
@@ -116,7 +118,12 @@ impl Engine {
         self.store.put(r, &chunks)
     }
     pub fn recall(&mut self, scope: &str, query: &str, limit: usize) -> Result<Vec<Hit>> {
-        self.recall_with_candidates(scope, query, limit, 16)
+        let candidates = if self.models.is_some() {
+            DEFAULT_RERANK_CANDIDATES
+        } else {
+            16
+        };
+        self.recall_with_candidates(scope, query, limit, candidates)
     }
     pub fn recall_with_candidates(
         &mut self,

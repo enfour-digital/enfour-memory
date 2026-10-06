@@ -8,7 +8,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     cpus: 2
-    mem_limit: 1g
+    mem_limit: 3g
     pids_limit: 128
     tmpfs: ["/tmp:size=32m,mode=1777"]
     ports: ["${ENFOUR_BIND:-127.0.0.1}:7463:7463"]

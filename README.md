@@ -5,9 +5,11 @@ embeddings and reranking, revision history, graph exports, a browser search
 page, and an official `rmcp` MCP server. Runs on the ThinkPad; no cloud
 inference or telemetry in the service.
 
-This is an initial implementation, not a demonstrated state-of-the-art result.
-Read the [research audit](docs/research.md) and [validation record](docs/validation.md)
-for evidence and limitations.
+The v0.2 profile is selected through independent retrieval experiments.
+Read the [benchmark report](docs/benchmark-results.md), [research audit](docs/research.md)
+and [validation record](docs/validation.md) for evidence and limitations.
+Held-out evaluation is in progress; the existing homelab service stays on v0.1
+until that evaluation and release acceptance checks finish.
 
 ## Start on the homelab
 
@@ -141,11 +143,12 @@ Use the offline `reindex` command when changing embeddings; see
 
 ## Footprint and dependencies
 
-The initial model choice is quantized BGE-small-en-v1.5 plus Mixedbread
-mxbai-rerank-xsmall-v1, selected from local smoke comparisons. English is the
-initial retrieval target. The current files total about 156 MiB; inference
+The v0.2 model choice is quantized BGE-small-en-v1.5 plus GTE ModernBERT
+reranking, selected on 340 LoCoMo development questions from nine configurations.
+English is the initial retrieval target. Model files total about 211 MiB; inference
 loads lazily, uses two ONNX intra-op threads, and admits at most eight requests
-with serialized inference. Candidate reranking is bounded to sixteen records.
+with serialized inference. Candidate reranking is bounded to 64 records; the default response contains
+five excerpts. Lexical-only mode keeps its smaller candidate budget.
 `--lexical-only` is an explicit mode when local inference is not wanted.
 
 The build pins Rust 1.99.0, official rmcp 3.5.1, axum 0.8.9 and fastembed 7.1.0,
@@ -153,11 +156,10 @@ with a committed lockfile. Stable fastembed requires a prerelease `ort` binding;
 see [build details](docs/build.md). No Python interpreter or compiler is needed
 in the running service. Python is used only for provisioning and wire tests.
 
-The deployed stripped executable is about 37 MiB and the runtime image about
-123 MiB, excluding the separately mounted models and state. The small deployed
-smoke test reached about 572 MiB process RSS. These are measurements of this
-build and two records, not a maximum-corpus memory guarantee. The service has a
-1 GiB container limit and a lightweight local health probe.
+The v0.1 deployed executable measured about 37 MiB, its runtime image about
+123 MiB, and its two-record smoke test about 572 MiB process RSS. The v0.2
+Compose profile allows 3 GiB and retains a lightweight local health probe.
+Final v0.2 resource measurements will accompany the held-out results.
 
 Soft Serve repository: `ssh://git@git.example.com/enfour-memory.git`.
 The [example graph](docs/example-graph.json) and [Graphviz export](docs/example-graph.dot)
