@@ -5,6 +5,7 @@ import datetime
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import tomllib
 
@@ -17,7 +18,7 @@ entry = {
     "command": str(root / "scripts/enfour"),
     "args": ["connect"],
     "startup_timeout_sec": 30,
-    "tool_timeout_sec": 60,
+    "tool_timeout_sec": 180,
 }
 section = '\n[mcp_servers.enfour-memory]\n' + '\n'.join(
     f"{key} = {json.dumps(value)}" for key, value in entry.items()
@@ -33,13 +34,25 @@ for target in targets:
     parsed = tomllib.loads(old)
     existing = parsed.get("mcp_servers", {}).get("enfour-memory")
     if existing is not None:
-        if any(existing.get(key) != value for key, value in entry.items()):
+        if all(existing.get(key) == value for key, value in entry.items()):
+            print(f"Already registered: {target}")
+            continue
+        legacy = dict(entry, tool_timeout_sec=60)
+        if any(existing.get(key) != value for key, value in legacy.items()):
             raise SystemExit(f"Existing Enfour configuration differs; inspect {target}")
-        print(f"Already registered: {target}")
-        continue
-    new = old.rstrip() + "\n" + section
+        match = re.search(r"(?ms)^\[mcp_servers\.enfour-memory\][^\n]*\n(.*?)(?=^\[|\Z)", old)
+        if match is None:
+            raise SystemExit(f"Cannot safely locate the existing Enfour section: {target}")
+        body, count = re.subn(r"(?m)^(\s*tool_timeout_sec\s*=\s*)60(\s*(?:#.*)?)$", r"\g<1>180\2", match[1])
+        if count != 1:
+            raise SystemExit(f"Cannot safely update the existing Enfour timeout: {target}")
+        new = old[:match.start(1)] + body + old[match.end(1):]
+        replacement = dict(existing, tool_timeout_sec=180)
+    else:
+        new = old.rstrip() + "\n" + section
+        replacement = entry
     expected = parsed.copy()
-    expected["mcp_servers"] = dict(parsed.get("mcp_servers", {}), **{"enfour-memory": entry})
+    expected["mcp_servers"] = dict(parsed.get("mcp_servers", {}), **{"enfour-memory": replacement})
     assert tomllib.loads(new) == expected, "Unrelated settings changed"
     changes.append((target, old, new))
 

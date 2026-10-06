@@ -18,7 +18,7 @@ try {
   await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject;});
   let seq=0;const pending=new Map();
   socket.onmessage=event=>{const data=JSON.parse(event.data);if(['Network.requestWillBeSent','Network.responseReceived','Network.loadingFailed'].includes(data.method))console.log(data.method,JSON.stringify({url:data.params.request?.url??data.params.response?.url,status:data.params.response?.status,error:data.params.errorText}));if(data.id){const handler=pending.get(data.id);if(handler){pending.delete(data.id);data.error?handler.reject(data.error):handler.resolve(data.result);}}};
-  function rpc(method,params={}){return new Promise((resolve,reject)=>{const id=++seq;const timer=setTimeout(()=>reject(Error('Timed out: '+method)),15000);pending.set(id,{resolve:r=>{clearTimeout(timer);resolve(r);},reject:e=>{clearTimeout(timer);reject(e);}});socket.send(JSON.stringify({id,method,params}));});}
+  function rpc(method,params={}){return new Promise((resolve,reject)=>{const id=++seq;const timer=setTimeout(()=>reject(Error('Timed out: '+method)),method==='Runtime.evaluate'?120000:15000);pending.set(id,{resolve:r=>{clearTimeout(timer);resolve(r);},reject:e=>{clearTimeout(timer);reject(e);}});socket.send(JSON.stringify({id,method,params}));});}
   await rpc('Emulation.setDeviceMetricsOverride',{width:1040,height:1100,deviceScaleFactor:1,mobile:false});
   await rpc('Page.enable');
   await rpc('Network.enable');
@@ -31,10 +31,10 @@ try {
   }
   if(!ready){const state=await rpc('Runtime.evaluate',{expression:"({url:location.href,body:document.body?.innerText})",returnByValue:true});throw Error(JSON.stringify(state.result.value));}
   const token=(await readFile(root+'/state/access.token','utf8')).trim();
-  let result=await rpc('Runtime.evaluate',{expression:`(async()=>{document.getElementById('token').value=${JSON.stringify(token)};await document.getElementById('token').onchange();document.getElementById('query').value='Why did we choose SQLite?';await document.getElementById('search').onsubmit({preventDefault(){}});return {status:document.getElementById('status').textContent,scope:document.getElementById('scope').value,articles:document.querySelectorAll('article').length,title:document.querySelector('article h2')?.textContent};})()`,awaitPromise:true,returnByValue:true});
+  let result=await rpc('Runtime.evaluate',{expression:`(async()=>{document.getElementById('token').value=${JSON.stringify(token)};await document.getElementById('token').onchange();document.getElementById('scope').value='repo:example.com/memory-demo';document.getElementById('query').value='Why did we choose SQLite?';const form=document.getElementById('search'),fetchOriginal=window.fetch;let recallRequests=0;window.fetch=(...args)=>{if(String(args[0]).startsWith('/api/recall'))recallRequests++;return fetchOriginal(...args);};const pending=form.onsubmit({preventDefault(){}});const blocked=[...form.elements].every(e=>e.disabled)&&form.getAttribute('aria-busy')==='true';await form.onsubmit({preventDefault(){}});await pending;window.fetch=fetchOriginal;return {blocked,recallRequests,released:[...form.elements].every(e=>!e.disabled)&&form.getAttribute('aria-busy')==='false',status:document.getElementById('status').textContent,scope:document.getElementById('scope').value,articles:document.querySelectorAll('article').length,title:document.querySelector('article h2')?.textContent};})()`,awaitPromise:true,returnByValue:true});
   if(result.exceptionDetails)throw Error(JSON.stringify(result.exceptionDetails));
   const value=result.result.value;
-  if(value.articles!==2||value.title!=='SQLite is the single memory store')throw Error(JSON.stringify(value));
+  if(value.articles!==2||value.title!=='SQLite is the single memory store'||!value.blocked||!value.released||value.recallRequests!==1)throw Error(JSON.stringify(value));
   // Remove the secret before recording the page; use a non-secret placeholder.
   await rpc('Runtime.evaluate',{expression:"document.getElementById('token').value='';document.getElementById('token').placeholder='Connected for this session';"});
   const screenshot=await rpc('Page.captureScreenshot',{format:'png'});

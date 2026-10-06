@@ -53,7 +53,9 @@ scripts/install-clients --codex-source /home/user/nix-config-copy/home/user/conf
 ```
 
 The installer preserves other settings, saves private backups and refuses to
-overwrite a conflicting Enfour entry. Omit `--codex-source` on systems without
+overwrite a conflicting Enfour entry. It upgrades the previous managed
+60-second timeout to 180 seconds for deeper local reranking, preserving other
+settings. Omit `--codex-source` on systems without
 Home Manager. Alternatively add the entry manually, using the actual absolute path:
 
 ```toml
@@ -61,7 +63,7 @@ Home Manager. Alternatively add the entry manually, using the actual absolute pa
 command = "/absolute/path/to/enfour-memory/scripts/enfour"
 args = ["connect"]
 startup_timeout_sec = 30
-tool_timeout_sec = 60
+tool_timeout_sec = 180
 ```
 
 On this NixOS setup, put persistent Codex configuration in the Home Manager

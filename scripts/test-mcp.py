@@ -104,6 +104,19 @@ with tempfile.TemporaryDirectory() as state:
             connector.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n');connector.stdin.flush()
             assert len(bridge_rpc("tools/list",{},2)["tools"])==6
             assert bridge_rpc("tools/call",{"name":"graph","arguments":{"scope":"repo:test"}},3)["nodes"]==[]
+            # Keep this connector alive across a server restart. The SDK must
+            # recover its transport without forcing an agent to reconnect.
+            p.send_signal(signal.SIGTERM)
+            p.wait(timeout=10)
+            p = subprocess.Popen(base + ["serve", "--bind", f"127.0.0.1:{port}", "--token-file", token_file], stderr=subprocess.PIPE)
+            for _ in range(100):
+                try:
+                    if http("/healthz")[0] == 200: break
+                except OSError: pass
+                time.sleep(.05)
+            else: raise AssertionError("restarted HTTP server not ready")
+            assert len(bridge_rpc("tools/list",{},4)["tools"])==6
+            assert bridge_rpc("tools/call",{"name":"graph","arguments":{"scope":"repo:test"}},5)["nodes"]==[]
         finally:
             connector.stdin.close()
             try: connector.wait(timeout=10)
@@ -113,4 +126,4 @@ with tempfile.TemporaryDirectory() as state:
         p.send_signal(signal.SIGTERM)
         try: p.wait(timeout=10)
         except subprocess.TimeoutExpired: p.kill(); p.wait(); raise
-    print("PASS: stdio tools, HTTP initialize/list, SDK connector, scope isolation, stale writes, deletion, graph, authentication, host/origin and body limits")
+    print("PASS: stdio tools, HTTP initialize/list, SDK connector and restart recovery, scope isolation, stale writes, deletion, graph, authentication, host/origin and body limits")
