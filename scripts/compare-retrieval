@@ -17,7 +17,7 @@ args=p.parse_args()
 loader=importlib.machinery.SourceFileLoader('scorer',str(Path(__file__).with_name('score-retrieval')))
 spec=importlib.util.spec_from_loader(loader.name,loader);scorer=importlib.util.module_from_spec(spec);loader.exec_module(scorer)
 def read(path):
-    rows=[json.loads(l) for l in path.read_text().splitlines()]
+    rows=scorer.read_jsonl(path)
     assert len(rows)==len({x['id'] for x in rows})
     return {x['id']:x for x in rows}
 labels={key:value for key,value in read(args.dataset/'labels.jsonl').items() if value['split']==args.split}

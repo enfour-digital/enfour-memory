@@ -2,10 +2,16 @@
 """Evaluator-only relevance labels. Never imported by the retrieval engine."""
 import argparse
 import collections
+import gzip
 import json
 import math
 from pathlib import Path
 import statistics
+
+def read_jsonl(path):
+    opener = gzip.open if path.suffix == '.gz' else open
+    with opener(path, 'rt', encoding='utf-8') as source:
+        return [json.loads(line) for line in source]
 
 def metrics(gold, hits):
     gold = set(gold)
@@ -31,7 +37,7 @@ def main():
     args = p.parse_args()
     labels = [json.loads(l) for l in (args.dataset/'labels.jsonl').read_text().splitlines()]
     labels = {x['id']:x for x in labels if x['split']==args.split}
-    runs = [json.loads(l) for l in args.predictions.read_text().splitlines()]
+    runs = read_jsonl(args.predictions)
     assert len(runs)==len({r['id'] for r in runs}), 'duplicate predictions'
     assert {r['id'] for r in runs}==set(labels), 'incomplete or foreign query set'
     manifest=json.loads((args.dataset/'manifest.json').read_text())
