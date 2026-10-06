@@ -29,17 +29,32 @@ the token in browser storage. `scripts/enfour status` shows service health.
 The container restarts with the local Docker daemon. `scripts/enfour down`
 stops it while preserving state and models.
 
-The default bind is loopback. To publish on the server LAN interface, use
-`ENFOUR_BIND=127.0.0.1 scripts/enfour up` and open
-**http://memory.example.com:7463**. Set `ENFOUR_URL=http://memory.example.com:7463/mcp` for the
-stdio connector when using that bind. Use the same bind setting on later
-Compose reconciliation. Do not publish the raw HTTP service on the Internet.
+The default bind is loopback. To publish on the server LAN interface:
+
+```sh
+printf 'ENFOUR_BIND=127.0.0.1\n' > .env
+ENFOUR_URL=http://memory.example.com:7463/mcp scripts/enfour up
+```
+
+Open **http://memory.example.com:7463**. The ignored `.env` preserves the bind address
+for later Compose commands. The connector remembers the endpoint in
+`state/server.url`; `ENFOUR_URL` can override it. Do not publish the raw HTTP
+service on the Internet.
 
 ## Connect an agent once
 
 The connector uses rmcp on both sides and reads the private token itself.
 It forwards tools to the shared service, keeping one resident set of models.
-Add one MCP entry to the client configuration, using the actual absolute path:
+On the ThinkPad, registration is already installed for Codex and Grok. Start
+a new client session to load it. To register a different checkout:
+
+```sh
+scripts/install-clients --codex-source /home/user/nix-config-copy/home/user/configuration/codex/config.toml
+```
+
+The installer preserves other settings, saves private backups and refuses to
+overwrite a conflicting Enfour entry. Omit `--codex-source` on systems without
+Home Manager. Alternatively add the entry manually, using the actual absolute path:
 
 ```toml
 [mcp_servers.enfour-memory]
@@ -49,15 +64,9 @@ startup_timeout_sec = 30
 tool_timeout_sec = 60
 ```
 
-For a LAN bind, add this table to that entry:
-
-```toml
-[mcp_servers.enfour-memory.env]
-ENFOUR_URL = "http://memory.example.com:7463/mcp"
-```
-
 On this NixOS setup, put persistent Codex configuration in the Home Manager
-source; editing its generated live config will not survive activation.
+source. Its three-way defaults merge preserves runtime edits; the installer
+updates both the source and live configuration for an explicit persistent default.
 Grok can use the same stdio command in its MCP configuration. Clients that
 support remote MCP directly can use `/mcp` with bearer authentication.
 The scripts always target the ThinkPad's explicit local Docker socket.
@@ -138,3 +147,14 @@ The build pins Rust 1.99.0, official rmcp 3.5.1, axum 0.8.9 and fastembed 7.1.0,
 with a committed lockfile. Stable fastembed requires a prerelease `ort` binding;
 see [build details](docs/build.md). No Python interpreter or compiler is needed
 in the running service. Python is used only for provisioning and wire tests.
+
+The deployed stripped executable is about 37 MiB and the runtime image about
+123 MiB, excluding the separately mounted models and state. The small deployed
+smoke test reached about 572 MiB process RSS. These are measurements of this
+build and two records, not a maximum-corpus memory guarantee. The service has a
+1 GiB container limit and a lightweight local health probe.
+
+Soft Serve repository: `ssh://git@git.example.com/enfour-memory.git`.
+The [example graph](docs/example-graph.json) and [Graphviz export](docs/example-graph.dot)
+contain two source-backed architecture records created through the deployed MCP
+connector. See the [validation record](docs/validation.md) for the checks performed.
