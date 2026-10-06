@@ -39,6 +39,11 @@ enum Command {
         strategy: String,
         #[arg(long, default_value_t = 16)]
         candidates: usize,
+        /// Partition independent queries; every shard hashes the complete input file.
+        #[arg(long, default_value_t = 1)]
+        shards: usize,
+        #[arg(long, default_value_t = 0)]
+        shard: usize,
     },
 }
 #[derive(Deserialize)]
@@ -51,6 +56,11 @@ struct Query {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let mut engine = Engine::open(&cli.db, cli.models.as_deref())?;
+    let model_manifest_sha256 = cli
+        .models
+        .as_ref()
+        .map(|root| std::fs::read(root.join("manifest.json")).map(digest_hex))
+        .transpose()?;
     match cli.command {
         Command::Index {
             corpus,
@@ -133,7 +143,13 @@ fn main() -> Result<()> {
             output,
             strategy,
             candidates,
+            shards,
+            shard,
         } => {
+            ensure!(
+                (1..=64).contains(&shards) && shard < shards,
+                "invalid query shard"
+            );
             ensure!(
                 ["baseline", "hybrid", "lexical"].contains(&strategy.as_str()),
                 "unknown strategy"
@@ -148,6 +164,11 @@ fn main() -> Result<()> {
                 complete,
                 "corpus import incomplete; run index to completion first"
             );
+            let corpus_sha256: String = engine.store.db.query_row(
+                "SELECT value FROM metadata WHERE key='benchmark_corpus'",
+                [],
+                |r| r.get(0),
+            )?;
             if strategy != "lexical" {
                 // A development-only embedding cache must never silently score held-out scopes.
                 let mut scopes = std::collections::HashSet::new();
@@ -168,6 +189,9 @@ fn main() -> Result<()> {
                 .open(output)
                 .context("output must be new")?;
             for (index, line) in BufReader::new(File::open(queries)?).lines().enumerate() {
+                if index % shards != shard {
+                    continue;
+                }
                 let q: Query = serde_json::from_str(&line?)?;
                 let start = Instant::now();
                 let hits = if strategy == "baseline" {
@@ -196,11 +220,12 @@ fn main() -> Result<()> {
                 writeln!(
                     file,
                     "{}",
-                    json!({"id":q.id,"scope":q.scope,"strategy":strategy,"candidates":candidates,"query_file_sha256":query_hash,"ms":start.elapsed().as_secs_f64()*1000.,"hits":rows})
+                    json!({"id":q.id,"scope":q.scope,"strategy":strategy,"candidates":candidates,"shards":shards,"shard":shard,"model_manifest_sha256":model_manifest_sha256,"corpus_sha256":corpus_sha256,"query_file_sha256":query_hash,"ms":start.elapsed().as_secs_f64()*1000.,"hits":rows})
                 )?;
                 file.flush()?;
-                if (index + 1) % 50 == 0 {
-                    eprintln!("queries={}", index + 1);
+                let processed = index / shards + 1;
+                if processed % 50 == 0 {
+                    eprintln!("queries={processed} shard={shard}/{shards}");
                 }
             }
         }

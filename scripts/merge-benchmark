@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Merge complete deterministic query shards; refuse duplicates, gaps and mixed runs."""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+
+p=argparse.ArgumentParser(description=__doc__)
+p.add_argument('queries',type=Path)
+p.add_argument('output',type=Path)
+p.add_argument('shards',type=Path,nargs='+')
+a=p.parse_args()
+queries=[json.loads(line) for line in a.queries.read_text().splitlines()]
+assert len(queries)==len({q['id'] for q in queries}), 'duplicate input query'
+digest=hashlib.sha256(a.queries.read_bytes()).hexdigest()
+rows={};profiles=set();shards=set()
+for path in a.shards:
+    part=[json.loads(line) for line in path.read_text().splitlines()]
+    assert part, 'empty shard'
+    shard=part[0]['shard'];count=part[0]['shards']
+    assert count==len(a.shards) and shard not in shards, 'missing or duplicate shard'
+    shards.add(shard)
+    expected={q['id']:q for i,q in enumerate(queries) if i % count==shard}
+    assert len(part)==len(expected) and {r['id'] for r in part}==set(expected), 'incomplete shard'
+    for r in part:
+        assert r['id'] not in rows and r['query_file_sha256']==digest, 'duplicate or changed query'
+        assert r['shard']==shard and r['shards']==count and r['scope']==expected[r['id']]['scope'], 'shard mismatch'
+        profiles.add((r['strategy'],r['candidates'],r['model_manifest_sha256'],r['corpus_sha256']))
+        rows[r['id']]=r
+assert len(profiles)==1, 'mixed retrieval strategies, models or corpora'
+assert set(rows)=={q['id'] for q in queries}, 'incomplete query set'
+with a.output.open('x') as out:
+    for q in queries:out.write(json.dumps(rows[q['id']])+'\n')
+print(f'Merged {len(rows)} queries from {len(a.shards)} complete shards.')
