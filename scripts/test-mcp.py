@@ -20,7 +20,7 @@ def decoded(response):
 
 with tempfile.TemporaryDirectory() as state:
     db = str(Path(state) / "memory.db")
-    base = [binary, "--db", db, "--lexical-only"]
+    base = [binary, "--db", db, "--lexical-only", "--minify", "uglify-json"]
     p = subprocess.Popen(base + ["stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     seq = 0
     def rpc(method, params):
@@ -91,7 +91,7 @@ with tempfile.TemporaryDirectory() as state:
             body = next(line[6:] for line in body.splitlines() if line.startswith(b"data: ") and line[6:].strip().startswith(b"{"))
         assert len(decoded(json.loads(body))["tools"]) == 6
         assert http("/mcp", headers, b"x" * 70000)[0] == 413
-        connector = subprocess.Popen([binary,"connect","--url",f"http://127.0.0.1:{port}/mcp","--token-file",token_file],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+        connector = subprocess.Popen([binary,"--minify","uglify-json","connect","--url",f"http://127.0.0.1:{port}/mcp","--token-file",token_file],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
         try:
             def bridge_rpc(method, params, ident):
                 connector.stdin.write(json.dumps({"jsonrpc":"2.0","id":ident,"method":method,"params":params})+"\n")

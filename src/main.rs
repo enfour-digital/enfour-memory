@@ -10,6 +10,7 @@ use axum::{
 use clap::{Parser, Subcommand};
 use enfour_memory::{
     engine::Engine,
+    output::OutputFormat,
     server::{MemoryServer, Recall, Scope},
 };
 use rmcp::{
@@ -40,6 +41,9 @@ struct Cli {
     /// Bypass ephemeral computation caches for diagnostics and cold comparisons.
     #[arg(long, global = true)]
     no_cache: bool,
+    /// Tool-result text format; HTTP minify headers override this per request.
+    #[arg(long, global = true, value_enum, default_value = "toon")]
+    minify: OutputFormat,
     #[command(subcommand)]
     command: Command,
 }
@@ -138,6 +142,11 @@ async fn guard(State(g): State<Guard>, req: Request, next: Next) -> Response {
     if !bool::from(hash.ct_eq(&g.token_hash)) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
+    if req.uri().path().starts_with("/mcp")
+        && let Err(error) = OutputFormat::from_headers(req.headers(), OutputFormat::default())
+    {
+        return (StatusCode::BAD_REQUEST, error).into_response();
+    }
     let mut response = next.run(req).await;
     response
         .headers_mut()
@@ -201,7 +210,7 @@ async fn main() -> Result<()> {
             return Ok(());
         }
         Command::Connect { url, token_file } => {
-            return enfour_memory::bridge::connect(url.clone(), token_file).await;
+            return enfour_memory::bridge::connect(url.clone(), token_file, cli.minify).await;
         }
         Command::Health { address } => {
             use std::io::{Read, Write};
@@ -281,6 +290,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Stdio => {
             MemoryServer::new(engine)
+                .with_output_format(cli.minify)
                 .serve(stdio())
                 .await?
                 .waiting()
@@ -316,7 +326,7 @@ async fn main() -> Result<()> {
                 token_hash: Sha256::digest(token.trim().as_bytes()).into(),
                 hosts: hosts.clone(),
             };
-            let s = MemoryServer::new(engine);
+            let s = MemoryServer::new(engine).with_output_format(cli.minify);
             let mcp = s.clone();
             let ct = tokio_util::sync::CancellationToken::new();
             let service = StreamableHttpService::new(

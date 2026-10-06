@@ -21,6 +21,7 @@ case "${1:-help}" in
   logs) exec "${docker_local[@]}" compose -p enfour-memory logs --tail 80 memory ;;
   cli) shift; exec "${docker_local[@]}" compose -p enfour-memory run --rm --no-deps -T memory "$@" ;;
   connect)
+    shift
     url=http://127.0.0.1:7463/mcp
     if [ -f state/server.url ]; then read -r url < state/server.url; fi
     exec "${docker_local[@]}" run --rm -i --read-only --network host \
@@ -28,7 +29,7 @@ case "${1:-help}" in
       --memory 128m --cpus 0.5 --pids-limit 32 \
       --mount "type=bind,src=$PWD/state/access.token,dst=/access.token,readonly" \
       --entrypoint /usr/local/bin/enfour-memory enfour-memory:local \
-      connect --url "${ENFOUR_URL:-$url}" --token-file /access.token
+      connect --url "${ENFOUR_URL:-$url}" --token-file /access.token "$@"
     ;;
   *) echo 'Usage: scripts/enfour up|down|status|logs|connect|cli [arguments]' ;;
 esac

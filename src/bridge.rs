@@ -43,10 +43,20 @@ impl ServerHandler for Bridge {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))
     }
 }
-pub async fn connect(url: String, token_file: &Path) -> Result<()> {
+pub async fn connect(
+    url: String,
+    token_file: &Path,
+    format: crate::output::OutputFormat,
+) -> Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let token = std::fs::read_to_string(token_file)?;
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "minify",
+        reqwest::header::HeaderValue::from_static(format.as_str()),
+    );
     let client = reqwest::Client::builder()
+        .default_headers(headers)
         .connect_timeout(std::time::Duration::from_secs(5))
         .build()?;
     let transport = StreamableHttpClientTransport::with_client(

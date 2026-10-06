@@ -111,6 +111,12 @@ revisions and evidence. Updating or deleting an endpoint hides stale links
 until they are revalidated. A frontend can build directly on this data.
 Graphviz can render DOT with `dot -Tsvg graph.dot -o graph.svg`.
 
+MCP tool-result text defaults to TOON in v0.3.0. Send `minify: uglify-json` for
+compact JSON or `minify: none` for pretty JSON; `minify: toon` selects the default.
+The MCP envelope, inputs, data APIs and underlying memory/inference stay JSON
+or typed data. See [output adapters](docs/output-formats.md) for Codex settings,
+stdio options, the local single-file encoder and conformance checks.
+
 Scopes prevent accidental cross-project recall; they are not separate users
 or access-control domains. The owner token grants access to all scopes.
 Retrieved text is evidence, never executable instructions. Ranking measures
