@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
-# Explicit host prevents an ambient Docker context from executing on the Mac.
+# Build on this Linux host, regardless of the ambient Docker context.
 docker_local=(docker --host unix:///var/run/docker.sock)
 image=enfour-memory-rust:1.99.0
 case "${1:-test}" in
@@ -17,12 +17,18 @@ case "${1:-test}" in
       --env RUSTC_WRAPPER= "$image" fetch --locked "$@"
     ;;
   *)
+    # Reuse a shared Redis cache when present. Fresh hosts need no cache service.
+    cache_args=(--network none --env ENFOUR_CACHE_MODE=disk)
+    if "${docker_local[@]}" network inspect enfour-compiler-cache >/dev/null 2>&1; then
+      cache_args=(--network enfour-compiler-cache)
+    fi
     exec "${docker_local[@]}" run --rm --cpus 2 --memory 3g \
-      --network enfour-compiler-cache \
+      "${cache_args[@]}" \
       --env ENFOUR_MODELS \
       --env "LOCAL_OWNER=$(id -u):$(id -g)" \
       --mount "type=bind,src=$PWD,dst=/workspace" \
       --mount type=volume,src=enfour-cargo-downloads,dst=/cache/cargo \
+      --mount type=volume,src=enfour-sccache,dst=/cache/sccache \
       "$image" "${@:-test}"
     ;;
 esac

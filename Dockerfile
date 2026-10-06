@@ -7,4 +7,4 @@ WORKDIR /data
 ENV TOKENIZERS_PARALLELISM=false
 EXPOSE 7463
 ENTRYPOINT ["/usr/local/bin/enfour-memory", "--db", "/data/memory.sqlite", "--models", "/models"]
-CMD ["serve", "--bind", "0.0.0.0:7463", "--token-file", "/data/access.token", "--hosts", "localhost,127.0.0.1,memory.example.com"]
+CMD ["serve", "--bind", "0.0.0.0:7463", "--token-file", "/data/access.token", "--hosts", "localhost,127.0.0.1"]

@@ -12,6 +12,7 @@ services:
     pids_limit: 128
     tmpfs: ["/tmp:size=32m,mode=1777"]
     ports: ["${ENFOUR_BIND:-127.0.0.1}:7463:7463"]
+    command: [serve, --bind, "0.0.0.0:7463", --token-file, /data/access.token, --hosts, "${ENFOUR_HOSTS:-localhost,127.0.0.1}"]
     volumes:
       - ./state:/data
       - ./models:/models:ro

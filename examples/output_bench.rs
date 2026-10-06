@@ -38,6 +38,6 @@ fn main() {
         })).collect();
         measure(&format!("recall-{count}"), &json!(hits), 2000);
     }
-    let graph: Value = serde_json::from_str(include_str!("../docs/example-graph.json")).unwrap();
-    measure("stored-example-graph", &graph, 2000);
+    let graph: Value = serde_json::from_str(include_str!("../tests/fixtures/example-graph.json")).unwrap();
+    measure("synthetic-example-graph", &graph, 2000);
 }

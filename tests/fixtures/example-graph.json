@@ -1,0 +1,49 @@
+{
+  "edges": [
+    {
+      "id": "example-relation",
+      "relation": {
+        "from": "00000000-0000-0000-0000-000000000002",
+        "from_revision": 1,
+        "kind": "supports",
+        "scope": "repo:example.com/memory-demo",
+        "source": "example://architecture/relation",
+        "to": "00000000-0000-0000-0000-000000000001",
+        "to_revision": 2
+      }
+    }
+  ],
+  "generated_at": 1700000000,
+  "nodes": [
+    {
+      "content": "Enfour Memory combines FTS5 Porter lexical search and BGE-small dense embeddings using reciprocal rank fusion, then reranks at most sixty-four records with quantized GTE ModernBERT. Models run locally through fastembed with two ONNX inference threads. This quality-first profile was selected on LoCoMo development evidence retrieval before independent evaluation. Recall returns excerpts and evidence; ranking is not factual verification.",
+      "created_at": 1700000000,
+      "deleted": false,
+      "expires_at": null,
+      "id": "00000000-0000-0000-0000-000000000001",
+      "key": "retrieval",
+      "kind": "decision",
+      "revision": 2,
+      "scope": "repo:example.com/memory-demo",
+      "source": "example://architecture/retrieval",
+      "title": "Local hybrid retrieval and reranking",
+      "updated_at": 1700000000
+    },
+    {
+      "content": "Enfour Memory stores source-backed records, immutable revisions, typed relations, FTS5 and 384-dimensional embedding vectors in SQLite. WAL, FULL synchronization and optimistic revision checks protect updates. Exact vector scanning avoids a separate vector database for this small local deployment.",
+      "created_at": 1700000000,
+      "deleted": false,
+      "expires_at": null,
+      "id": "00000000-0000-0000-0000-000000000002",
+      "key": "storage",
+      "kind": "decision",
+      "revision": 1,
+      "scope": "repo:example.com/memory-demo",
+      "source": "example://architecture/storage",
+      "title": "SQLite is the single memory store",
+      "updated_at": 1700000000
+    }
+  ],
+  "schema_version": 1,
+  "scope": "repo:example.com/memory-demo"
+}

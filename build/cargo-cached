@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 status=0
+if [ "${ENFOUR_CACHE_MODE:-}" = disk ]; then
+  unset SCCACHE_REDIS_ENDPOINT
+  export SCCACHE_DIR=/cache/sccache
+fi
 if [ -n "${RUSTC_WRAPPER:-}" ]; then sccache --start-server; fi
 cargo "$@" || status=$?
 # Drain Redis writes, while preserving the actual Cargo failure code.

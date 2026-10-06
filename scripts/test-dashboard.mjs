@@ -1,10 +1,10 @@
 // Optional browser check against the two-record deployed Enfour project fixture.
 import {spawn} from 'node:child_process';
-import {readFile,writeFile,mkdtemp} from 'node:fs/promises';
+import {readFile,writeFile,mkdtemp,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('..',import.meta.url)).replace(/\/$/,'');
-const base=process.env.ENFOUR_URL||'http://memory.example.com:7463';
+const base=process.env.ENFOUR_URL||'http://127.0.0.1:7463';
 const profile=await mkdtemp(tmpdir()+'/enfour-browser-');
 const browser=spawn(process.env.ENFOUR_BROWSER||'chromium',['--headless','--password-store=basic','--use-mock-keychain','--disable-gpu','--disable-background-networking','--disable-component-update','--no-first-run','--disable-sync','--no-proxy-server','--remote-debugging-address=127.0.0.1','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{stdio:['ignore','ignore','inherit']});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -38,6 +38,7 @@ try {
   // Remove the secret before recording the page; use a non-secret placeholder.
   await rpc('Runtime.evaluate',{expression:"document.getElementById('token').value='';document.getElementById('token').placeholder='Connected for this session';"});
   const screenshot=await rpc('Page.captureScreenshot',{format:'png'});
-  await writeFile(root+'/docs/dashboard.png',Buffer.from(screenshot.data,'base64'));
-  console.log(JSON.stringify({result:'PASS',...value,screenshot:'docs/dashboard.png'}));
+  await mkdir(root+'/artifacts',{recursive:true});
+  await writeFile(root+'/artifacts/dashboard.png',Buffer.from(screenshot.data,'base64'));
+  console.log(JSON.stringify({result:'PASS',...value,screenshot:'artifacts/dashboard.png'}));
 }finally{socket?.close();browser.kill('SIGTERM');}

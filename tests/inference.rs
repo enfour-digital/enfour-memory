@@ -20,7 +20,7 @@ fn local_inference_retrieval_and_footprint() {
         (
             "build",
             "Build cache",
-            "Reuse Rust compilation results through sccache and a local Valkey cache.",
+            "Reuse Rust compilation results through sccache and a local Valkey compiler cache.",
         ),
         (
             "auth",
