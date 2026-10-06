@@ -87,6 +87,43 @@ The connector shares the server's resident models. It does not load another copy
 `scripts/install-clients` can register this checkout in local Codex and Grok settings.
 Use `--codex-source PATH` when a configuration manager owns the Codex source file.
 
+### Install agent skills
+
+Two skills guide memory use. `enfour-recall` finds project evidence before work.
+`enfour-maintain` saves verified knowledge, handles revisions, and exports graphs.
+
+Install once on the client computer with Node.js and npm:
+
+```sh
+DISABLE_TELEMETRY=1 npx skills add http://memory.example.com:7463 --agent codex --skill enfour-recall enfour-maintain -g
+```
+
+Replace the hostname. Review the listed skills before you confirm installation.
+Omit `-g` for a project installation. Change `--agent` for another supported client.
+From a local clone, replace the URL with `.`. Restart the agent after installation.
+The command disables the skills CLI's optional telemetry.
+
+For an agent-guided installation, add this temporary MCP entry:
+
+```toml
+[mcp_servers.enfour-skills]
+url = "http://memory.example.com:7463/mcp/skills"
+```
+
+Ask the agent to call `install_skills` with the server origin as `source_url`.
+The tool returns instructions. It does not execute commands or install files.
+Run the install command on the client computer. You can then remove the temporary MCP entry.
+Keep the authenticated memory MCP entry.
+
+The skill endpoint needs no token. It has no memory tools or database access.
+Public files use the [skills.sh discovery format](https://github.com/vercel-labs/skills/blob/main/src/providers/wellknown.ts):
+
+- `GET /.well-known/agent-skills/index.json` lists skills and SHA-256 digests.
+- `GET /.well-known/agent-skills/<name>/SKILL.md` returns a listed skill.
+
+For a manual Codex installation, copy each skill folder into `~/.agents/skills/`.
+Review existing files before replacement. Skill installation does not configure the memory connection or grant access to its data.
+
 ### Project scope
 
 Use one stable scope for each repository. Read the Git origin in the project directory:
@@ -172,6 +209,7 @@ dot -Tsvg graph.dot -o graph.svg
 ```mermaid
 flowchart TB
     agent("Coding agent") --> mcp("rmcp · MCP")
+    installer("skills.sh / agent") --> skills("Public skill files<br/>/mcp/skills · install guide")
     ui("Browser / graph viewer") --> api("axum · HTTP API")
     subgraph server["One local Rust service"]
         mcp --> engine("Memory engine<br/>scope · revision checks · evidence")
@@ -272,10 +310,11 @@ Each case uses 20 warmup runs and 2,000 measured runs.
 
 | Payload | TOON bytes / µs | Compact JSON bytes / µs | Pretty JSON bytes / µs |
 | --- | ---: | ---: | ---: |
-| 5 recall hits | 2,127 / 13.565 | 2,936 / 3.765 | 3,652 / 4.065 |
-| 16 recall hits | 6,485 / 38.164 | 9,405 / 10.452 | 11,694 / 13.206 |
+| 5 recall hits | 2,127 / 15.519 | 2,936 / 3.304 | 3,652 / 4.042 |
+| 16 recall hits | 6,485 / 37.037 | 9,405 / 9.708 | 11,694 / 12.978 |
+| Synthetic graph | 1,554 / 5.878 | 1,737 / 1.700 | 2,079 / 2.407 |
 
-TOON reduced these payloads by 28–31% in bytes. Compact JSON needed less CPU time.
+TOON reduced the recall payloads by 28–31% in bytes. The graph reduction was about 11%. Compact JSON needed less CPU time.
 The codec borrows its input tree. It still allocates the output string.
 
 Run the small format benchmark with:
@@ -284,7 +323,7 @@ Run the small format benchmark with:
 scripts/cargo-local run --release --locked --offline --example output_bench
 ```
 
-The release binary measured 37.2 MiB. The runtime image measured 123.5 MiB before skill packaging.
+The v0.4.0 release binary measures 37.6 MiB. The runtime image measures 124.0 MiB, including both skills.
 An earlier two-record cache check used about 423 MiB of process RAM.
 Warm inference took about 308 ms. Exact cached repeats took about 1.1 ms over HTTP.
 These small samples do not establish large-collection latency or throughput.
@@ -333,9 +372,15 @@ Fastembed uses the pinned prerelease `ort` binding. The runtime needs no Python 
 ```sh
 scripts/cargo-local test --locked --offline
 scripts/cargo-local clippy --locked --offline --all-targets -- -D warnings
+python3 scripts/test-skills.py
+python3 scripts/test-output.py
+python3 scripts/test-mcp.py
 ```
 
 Tests cover revisions, scope isolation, cache freshness, output formats, and 159 upstream TOON encoder fixtures.
+Wire checks use `target/debug/enfour-memory` and temporary lexical databases. Set `ENFOUR_BINARY` to test another build.
+Skills installation was also verified with the official skills CLI 1.7.0 in a temporary project.
+
 Model tests require provisioned weights and an explicit `--include-ignored` option.
 Use targeted checks for routine changes. Run full retrieval evaluations only at deliberate evaluation milestones.
 
@@ -357,3 +402,6 @@ The source includes upstream fixtures and their MIT license.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+The skills follow [Matt Pocock's writing guidance](https://github.com/mattpocock/skills/blob/main/skills/productivity/writing-for-agents/SKILL.md).
+This README uses short, direct instructions based on [ASD-STE100](https://www.asd-ste100.org/).

@@ -129,18 +129,19 @@ async fn guard(State(g): State<Guard>, req: Request, next: Next) -> Response {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
-    if req.uri().path() == "/" || req.uri().path() == "/healthz" {
-        return next.run(req).await;
-    }
-    let token = req
-        .headers()
-        .get("authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|h| h.strip_prefix("Bearer "))
-        .unwrap_or("");
-    let hash: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-    if !bool::from(hash.ct_eq(&g.token_hash)) {
-        return StatusCode::UNAUTHORIZED.into_response();
+    let public = matches!(req.uri().path(), "/" | "/healthz")
+        || enfour_memory::skills::is_public_path(req.uri().path());
+    if !public {
+        let token = req
+            .headers()
+            .get("authorization")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|h| h.strip_prefix("Bearer "))
+            .unwrap_or("");
+        let hash: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        if !bool::from(hash.ct_eq(&g.token_hash)) {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
     }
     if req.uri().path().starts_with("/mcp")
         && let Err(error) = OutputFormat::from_headers(req.headers(), OutputFormat::default())
@@ -333,6 +334,14 @@ async fn main() -> Result<()> {
                 move || Ok(mcp.clone()),
                 Arc::new(LocalSessionManager::default()),
                 StreamableHttpServerConfig::default()
+                    .with_allowed_hosts(hosts.clone())
+                    .with_cancellation_token(ct.child_token()),
+            );
+            let skill_server = enfour_memory::skills::SkillServer::new(cli.minify);
+            let skill_service = StreamableHttpService::new(
+                move || Ok(skill_server.clone()),
+                Arc::new(LocalSessionManager::default()),
+                StreamableHttpServerConfig::default()
                     .with_allowed_hosts(hosts)
                     .with_cancellation_token(ct.child_token()),
             );
@@ -347,6 +356,8 @@ async fn main() -> Result<()> {
                 .route("/api/graph", get(graph))
                 .route("/api/graph.dot", get(dot))
                 .nest_service("/mcp", service)
+                .nest_service("/mcp/skills", skill_service)
+                .merge(enfour_memory::skills::routes())
                 .with_state(s)
                 .layer(tower_http::limit::RequestBodyLimitLayer::new(65536))
                 .layer(middleware::from_fn_with_state(g, guard));

@@ -4,4 +4,5 @@ pub mod engine;
 pub mod models;
 pub mod output;
 pub mod server;
+pub mod skills;
 pub mod store;
