@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Evaluator-only relevance labels. Never imported by the retrieval engine."""
+import argparse
+import collections
+import json
+import math
+from pathlib import Path
+import statistics
+
+def metrics(gold, hits):
+    gold = set(gold)
+    found = [x['key'] for x in hits]
+    assert len(found) == len(set(found)), 'duplicate retrieved evidence'
+    result = {}
+    for k in [1, 5, 10, 16]:
+        covered = len(gold.intersection(found[:k]))
+        result[f'recall@{k}'] = covered / len(gold)
+        result[f'hit@{k}'] = float(covered > 0)
+        result[f'all_evidence@{k}'] = float(covered == len(gold))
+        dcg = sum(1/math.log2(i+2) for i, key in enumerate(found[:k]) if key in gold)
+        ideal = sum(1/math.log2(i+2) for i in range(min(len(gold), k)))
+        result[f'ndcg@{k}'] = dcg / ideal
+    result['mrr@16'] = next((1/(i+1) for i,key in enumerate(found[:16]) if key in gold),0.)
+    return result
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('predictions', type=Path)
+    p.add_argument('--dataset', type=Path, default=Path('bench/locomo'))
+    p.add_argument('--split',choices=['dev','test'],required=True)
+    args = p.parse_args()
+    labels = [json.loads(l) for l in (args.dataset/'labels.jsonl').read_text().splitlines()]
+    labels = {x['id']:x for x in labels if x['split']==args.split}
+    runs = [json.loads(l) for l in args.predictions.read_text().splitlines()]
+    assert len(runs)==len({r['id'] for r in runs}), 'duplicate predictions'
+    assert {r['id'] for r in runs}==set(labels), 'incomplete or foreign query set'
+    manifest=json.loads((args.dataset/'manifest.json').read_text())
+    expected=manifest['hashes'][args.split+'.queries.jsonl']
+    groups=collections.defaultdict(list)
+    for r in runs:
+        assert r['query_file_sha256']==expected, 'queries changed'
+        label=labels[r['id']]
+        assert r['scope']==label['scope'], 'scope mismatch'
+        row=metrics(label['gold'],r['hits'])
+        groups['overall'].append(row)
+        groups['category:'+str(label['category'])].append(row)
+        groups[r['scope']].append(row)
+    result={key:dict(n=len(rows),**{metric:statistics.mean(r[metric] for r in rows) for metric in rows[0]}) for key,rows in groups.items()}
+    timings=sorted(r['ms'] for r in runs)
+    result['latency_ms']={'p50':statistics.median(timings),'p95':timings[math.ceil(.95*len(timings))-1],'max':max(timings)}
+    result['mean_returned_bytes']=statistics.mean(sum(h['bytes'] for h in r['hits'][:5]) for r in runs)
+    result['split']=args.split
+    result['dataset_sha256']=manifest['source_sha256']
+    print(json.dumps(result,indent=2))
+if __name__=='__main__': main()
