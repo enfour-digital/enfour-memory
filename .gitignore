@@ -1,0 +1,7 @@
+/target/
+/state/
+/models/
+*.sqlite*
+*.token
+__pycache__/
+
