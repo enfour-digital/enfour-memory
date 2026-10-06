@@ -33,7 +33,7 @@ impl Engine {
                 .optional()?;
             ensure!(
                 old.as_ref().is_none_or(|s| s == &m.identity),
-                "embedding model changed; export and rebuild the derived index first"
+                "embedding model changed; stop the service and run reindex first"
             );
             store.db.execute(
                 "INSERT OR IGNORE INTO metadata VALUES('embedding_identity',?)",

@@ -38,6 +38,21 @@ pub struct Models {
     dimensions: usize,
 }
 impl Models {
+    /// Public model provenance for diagnostics; never contains memory text.
+    pub fn info(&self) -> serde_json::Value {
+        serde_json::json!({
+            "embedding": {
+                "repository": self.manifest.embedding.repository,
+                "revision": self.manifest.embedding.revision,
+                "dimensions": self.dimensions,
+                "identity": self.identity
+            },
+            "reranker": {
+                "repository": self.manifest.reranker.repository,
+                "revision": self.manifest.reranker.revision
+            }
+        })
+    }
     pub fn open(root: &Path) -> Result<Self> {
         let data = std::fs::read(root.join("manifest.json"))
             .context("run scripts/download-models first, or use --lexical-only")?;

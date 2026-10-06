@@ -96,6 +96,8 @@ Existing Basic Memory data and integration are not migrated by this project.
 The HTTP API also exposes `GET /api/status`, `/api/recall?scope=…&query=…`,
 `/api/graph?scope=…`, and `/api/graph.dot?scope=…`. Every API request needs
 `Authorization: Bearer …`. `/` and `/healthz` contain no memory data.
+The status API includes the active embedding/reranker repositories, pinned
+revisions, vector dimension and embedding identity.
 JSON graph nodes contain complete current records; edges name their endpoint
 revisions and evidence. Updating or deleting an endpoint hides stale links
 until they are revalidated. A frontend can build directly on this data.

@@ -172,6 +172,7 @@ async fn status(State(s): State<MemoryServer>) -> Response {
                 "lexical_only"
             }
             .into();
+            v["models"] = e.models.as_ref().map(|m| m.info()).into();
             Ok(v)
         })
         .await
