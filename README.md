@@ -265,7 +265,7 @@ flowchart TB
         engine --> adapter("Result adapter<br/>TOON or JSON")
     end
     adapter --> client("Client reads text<br/>or decodes TOON / JSON")
-    db --> graph("JSON / DOT graph export") --> ui
+    db --> graph_export("JSON / DOT graph export") --> ui
 ```
 
 ### Recall order
