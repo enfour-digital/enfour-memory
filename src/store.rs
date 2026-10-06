@@ -265,6 +265,16 @@ impl Store {
         .collect()
     }
     pub fn candidates(&self, scope: &str, query: &str, vector: Option<&[f32]>) -> Result<Vec<Hit>> {
+        self.candidates_with_limit(scope, query, vector, 16)
+    }
+    pub fn candidates_with_limit(
+        &self,
+        scope: &str,
+        query: &str,
+        vector: Option<&[f32]>,
+        limit: usize,
+    ) -> Result<Vec<Hit>> {
+        ensure!((1..=128).contains(&limit), "candidate limit must be 1..128");
         let terms: Vec<String> = query
             .split(|c: char| !c.is_alphanumeric())
             .filter(|t| !t.is_empty())
@@ -318,7 +328,7 @@ impl Store {
         }
         let mut ranked: Vec<_> = ranks.into_iter().collect();
         ranked.sort_by(|a, b| b.1.0.total_cmp(&a.1.0).then(a.0.cmp(&b.0)));
-        ranked.truncate(48);
+        ranked.truncate(limit * 3);
         let mut results = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for (id, (score, lexical, semantic)) in ranked {
@@ -334,7 +344,7 @@ impl Store {
                     rerank_score: None,
                 });
             }
-            if results.len() == 16 {
+            if results.len() == limit {
                 break;
             }
         }

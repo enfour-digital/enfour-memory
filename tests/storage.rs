@@ -15,6 +15,43 @@ fn note(key: &str) -> Remember {
     }
 }
 #[test]
+fn larger_candidate_pool_preserves_scope_and_current_revision_filters() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = Engine::open(&dir.path().join("candidates.db"), None).unwrap();
+    for i in 0..40 {
+        engine.remember(note(&format!("candidate-{i}"))).unwrap();
+    }
+    let hidden = engine.store.get("repo:example/a", "candidate-0").unwrap();
+    engine.store.forget(&hidden.scope, &hidden.id, 1).unwrap();
+    let mut other = note("other-scope");
+    other.scope = "repo:other".into();
+    engine.remember(other).unwrap();
+    assert_eq!(
+        engine
+            .store
+            .candidates("repo:example/a", "SQLite", None)
+            .unwrap()
+            .len(),
+        16
+    );
+    let wider = engine
+        .store
+        .candidates_with_limit("repo:example/a", "SQLite", None, 64)
+        .unwrap();
+    assert_eq!(wider.len(), 39);
+    assert!(
+        wider
+            .iter()
+            .all(|h| h.memory.scope == "repo:example/a" && h.memory.key != "candidate-0")
+    );
+    assert!(
+        engine
+            .store
+            .candidates_with_limit("repo:example/a", "SQLite", None, 129)
+            .is_err()
+    );
+}
+#[test]
 fn revisions_isolation_graph_and_backup() {
     let d = tempfile::tempdir().unwrap();
     let db = d.path().join("memory.db");

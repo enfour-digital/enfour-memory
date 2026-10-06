@@ -12,6 +12,14 @@ specs = {
     "embedding": ("Qdrant/bge-small-en-v1.5-onnx-Q", "aa8f8b060edb00e03bfdd08813a2949946c8ba55", "model_optimized.onnx"),
     "reranker": ("mixedbread-ai/mxbai-rerank-xsmall-v1", "b5c6e9da73abc3711f593f705371cdbe9e0fe422", "onnx/model_quantized.onnx"),
 }
+if os.environ.get("ENFOUR_EMBEDDING") == "bge-base":
+    specs["embedding"] = ("Qdrant/bge-base-en-v1.5-onnx-Q", "199291fdd1aa89faf9c20b722dc72ad5e17aa0d0", "model_optimized.onnx")
+if os.environ.get("ENFOUR_RERANKER") == "mxbai-base":
+    specs["reranker"] = ("mixedbread-ai/mxbai-rerank-base-v1", "800f24c113213a187e65bde9db00c15a2bb12738", "onnx/model_quantized.onnx")
+if os.environ.get("ENFOUR_EMBEDDING") == "gte-modernbert":
+    specs["embedding"] = ("Alibaba-NLP/gte-modernbert-base", "e7f32e3c00f91d699e8c43b53106206bcc72bb22", "onnx/model_quantized.onnx")
+if os.environ.get("ENFOUR_RERANKER") == "gte-modernbert":
+    specs["reranker"] = ("Alibaba-NLP/gte-reranker-modernbert-base", "f7481e6055501a30fb19d090657df9ec1f79ab2c", "onnx/model_quantized.onnx")
 if os.environ.get("ENFOUR_RERANKER") == "jina":
     specs["reranker"] = ("jinaai/jina-reranker-v1-tiny-en", "aca45de6945b5dc6399abcd2a9c55ded5dc9111f", "onnx/model_quantized.onnx")
 if os.environ.get("ENFOUR_RERANKER") == "tinybert":
@@ -28,6 +36,8 @@ for role, (repo, revision, weights) in specs.items():
     folder = root / role
     folder.mkdir(exist_ok=True)
     spec = {"repository": repo, "revision": revision, "files": {}}
+    if role == "embedding" and repo == "Alibaba-NLP/gte-modernbert-base":
+        spec["query_prefix"] = ""
     # Hub metadata includes LFS hashes for weights and Git blob IDs for small files.
     with urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}/revision/{revision}?blobs=true", timeout=60) as r:
         metadata = {f["rfilename"]: f for f in json.load(r)["siblings"]}

@@ -30,6 +30,8 @@ enum Command {
         output: PathBuf,
         #[arg(long, default_value = "baseline")]
         strategy: String,
+        #[arg(long, default_value_t = 16)]
+        candidates: usize,
     },
 }
 #[derive(Deserialize)]
@@ -93,6 +95,7 @@ fn main() -> Result<()> {
             queries,
             output,
             strategy,
+            candidates,
         } => {
             ensure!(
                 ["baseline", "hybrid", "lexical"].contains(&strategy.as_str()),
@@ -108,7 +111,7 @@ fn main() -> Result<()> {
                 let q: Query = serde_json::from_str(&line?)?;
                 let start = Instant::now();
                 let hits = if strategy == "baseline" {
-                    engine.recall(&q.scope, &q.query, 16)?
+                    engine.recall_with_candidates(&q.scope, &q.query, 16, candidates)?
                 } else {
                     let vector = if strategy == "hybrid" {
                         Some(
@@ -122,15 +125,18 @@ fn main() -> Result<()> {
                     } else {
                         None
                     };
-                    engine
-                        .store
-                        .candidates(&q.scope, &q.query, vector.as_deref())?
+                    engine.store.candidates_with_limit(
+                        &q.scope,
+                        &q.query,
+                        vector.as_deref(),
+                        candidates,
+                    )?
                 };
                 let rows:Vec<_>=hits.iter().map(|h|json!({"key":h.memory.key,"score":h.score,"rerank_score":h.rerank_score,"bytes":h.excerpt.len()})).collect();
                 writeln!(
                     file,
                     "{}",
-                    json!({"id":q.id,"scope":q.scope,"strategy":strategy,"query_file_sha256":query_hash,"ms":start.elapsed().as_secs_f64()*1000.,"hits":rows})
+                    json!({"id":q.id,"scope":q.scope,"strategy":strategy,"candidates":candidates,"query_file_sha256":query_hash,"ms":start.elapsed().as_secs_f64()*1000.,"hits":rows})
                 )?;
                 file.flush()?;
                 if (index + 1) % 50 == 0 {

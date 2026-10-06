@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""Paired bootstrap on identical query sets; default unit is whole conversation."""
+import argparse
+import collections
+import importlib.machinery
+import importlib.util
+import json
+from pathlib import Path
+import random
+
+p=argparse.ArgumentParser(description=__doc__)
+p.add_argument('baseline',type=Path);p.add_argument('candidate',type=Path)
+p.add_argument('--dataset',type=Path,default=Path('bench/locomo'))
+p.add_argument('--split',choices=['dev','test'],required=True)
+p.add_argument('--unit',choices=['conversation','query'],default='conversation')
+args=p.parse_args()
+loader=importlib.machinery.SourceFileLoader('scorer',str(Path(__file__).with_name('score-retrieval')))
+spec=importlib.util.spec_from_loader(loader.name,loader);scorer=importlib.util.module_from_spec(spec);loader.exec_module(scorer)
+def read(path):
+    rows=[json.loads(l) for l in path.read_text().splitlines()]
+    assert len(rows)==len({x['id'] for x in rows})
+    return {x['id']:x for x in rows}
+labels={key:value for key,value in read(args.dataset/'labels.jsonl').items() if value['split']==args.split}
+a,b=read(args.baseline),read(args.candidate)
+assert set(a)==set(b)==set(labels)
+groups=collections.defaultdict(list)
+for key,label in labels.items():
+    assert a[key]['scope']==b[key]['scope']==label['scope']
+    assert a[key]['query_file_sha256']==b[key]['query_file_sha256']
+    ma,mb=scorer.metrics(label['gold'],a[key]['hits']),scorer.metrics(label['gold'],b[key]['hits'])
+    groups[label['scope'] if args.unit=='conversation' else key].append({m:mb[m]-ma[m] for m in ma})
+units=list(groups);rng=random.Random(20261006)
+metrics=['recall@5','ndcg@10','all_evidence@10']
+samples={m:[] for m in metrics}
+aggregates={key:{m:sum(r[m] for r in rows) for m in metrics} for key,rows in groups.items()}
+for _ in range(5000):
+    chosen=rng.choices(units,k=len(units));denominator=sum(len(groups[key]) for key in chosen)
+    for m in metrics:samples[m].append(sum(aggregates[key][m] for key in chosen)/denominator)
+result={'unit':args.unit,'units':len(units),'queries':len(labels),'samples':5000,'seed':20261006,'metrics':{}}
+for m,values in samples.items():
+    values.sort()
+    result['metrics'][m]={'delta':sum(r[m] for rows in groups.values() for r in rows)/len(labels),'ci95':[values[125],values[4874]]}
+print(json.dumps(result,indent=2))

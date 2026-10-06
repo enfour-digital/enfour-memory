@@ -21,6 +21,8 @@ pub struct ModelSpec {
     pub repository: String,
     pub revision: String,
     pub files: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query_prefix: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Manifest {
@@ -33,6 +35,7 @@ pub struct Models {
     manifest: Manifest,
     embedding: Option<TextEmbedding>,
     reranker: Option<TextRerank>,
+    dimensions: usize,
 }
 impl Models {
     pub fn open(root: &Path) -> Result<Self> {
@@ -43,12 +46,30 @@ impl Models {
             "bge-cls-dynamic-prefix-keys-v2:{}",
             digest_hex(serde_json::to_vec(&manifest.embedding)?)
         );
+        let config_data = std::fs::read(root.join("embedding/config.json"))?;
+        ensure!(
+            manifest
+                .embedding
+                .files
+                .get("config.json")
+                .is_some_and(|hash| *hash == digest_hex(&config_data)),
+            "embedding config checksum mismatch"
+        );
+        let config: serde_json::Value = serde_json::from_slice(&config_data)?;
+        let dimensions = config["hidden_size"]
+            .as_u64()
+            .context("embedding hidden_size missing")? as usize;
+        ensure!(
+            (1..=4096).contains(&dimensions),
+            "unsupported embedding dimension"
+        );
         Ok(Self {
             root: root.into(),
             identity,
             manifest,
             embedding: None,
             reranker: None,
+            dimensions,
         })
     }
     fn verified(&self, role: &str, spec: &ModelSpec, name: &str) -> Result<Vec<u8>> {
@@ -87,15 +108,15 @@ impl Models {
                     .with_intra_threads(2),
             )?);
         }
+        let prefix = self
+            .manifest
+            .embedding
+            .query_prefix
+            .as_deref()
+            .unwrap_or("Represent this sentence for searching relevant passages: ");
         let texts: Vec<_> = texts
             .into_iter()
-            .map(|t| {
-                if query {
-                    format!("Represent this sentence for searching relevant passages: {t}")
-                } else {
-                    t
-                }
-            })
+            .map(|t| if query { format!("{prefix}{t}") } else { t })
             .collect();
         // Dynamic quantization depends on batch ranges. Keep document and query
         // batch shape consistent and bound activation memory independently of note size.
@@ -106,7 +127,7 @@ impl Models {
         ensure!(
             vectors
                 .iter()
-                .all(|v| v.len() == 384 && v.iter().all(|x| x.is_finite())),
+                .all(|v| v.len() == self.dimensions && v.iter().all(|x| x.is_finite())),
             "invalid embedding output"
         );
         Ok(vectors)

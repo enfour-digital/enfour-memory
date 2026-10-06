@@ -76,6 +76,8 @@ enum Command {
     },
     /// Verify SQLite and report counts and the configured inference mode.
     Doctor,
+    /// Offline, atomic rebuild of derived indexes for a new embedding model.
+    Reindex,
     /// Consistent SQLite backup, including revision history and indexes.
     Backup { destination: PathBuf },
     /// Export active graph JSON or Graphviz DOT to stdout.
@@ -182,6 +184,12 @@ async fn status(State(s): State<MemoryServer>) -> Response {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match &cli.command {
+        Command::Reindex => {
+            ensure!(!cli.lexical_only, "reindex requires local models");
+            let count = Engine::reindex(&cli.db, &cli.models)?;
+            println!("Reindexed {count} current records; source history preserved.");
+            return Ok(());
+        }
         Command::Connect { url, token_file } => {
             return enfour_memory::bridge::connect(url.clone(), token_file).await;
         }
@@ -339,6 +347,7 @@ async fn main() -> Result<()> {
         Command::Init { .. }
         | Command::Scope { .. }
         | Command::Connect { .. }
+        | Command::Reindex
         | Command::Health { .. } => unreachable!(),
     }
     Ok(())

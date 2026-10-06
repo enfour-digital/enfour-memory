@@ -33,6 +33,6 @@ labels=[dict(id=key,scope='beir:scifact',gold=value,category='scientific_claim',
 assert len(corpus)==5183 and len(queries)==300 and len(labels)==300
 for name,rows in [('corpus.jsonl',corpus),('test.queries.jsonl',queries),('labels.jsonl',labels)]:
     (root/name).write_text(''.join(json.dumps(row,ensure_ascii=False)+'\n' for row in rows))
-manifest=dict(upstream=url,license='CC-BY-SA-4.0',source_sha256=digest,documents=len(corpus),queries={'test':len(queries)},excluded=0,hashes={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in root.glob('*.jsonl')})
+manifest=dict(upstream=url,license='CC-BY-SA-4.0',source_sha256=digest,documents=len(corpus),queries={'test':len(queries)},excluded=0,hashes={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in ['corpus.jsonl','test.queries.jsonl','labels.jsonl']})
 (root/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 print(json.dumps(manifest,indent=2))
