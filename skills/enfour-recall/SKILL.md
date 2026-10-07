@@ -1,11 +1,16 @@
 ---
 name: enfour-recall
-description: Recall Enfour Memory before project work, when you continue a task, or for a decision review, or for a repeated failure. Skip requests without project context.
+description: Recall Enfour Memory before project work, when you continue a task, or for a decision review, or for a repeated failure. Use an explicit personal scope for user memory.
 ---
+
+If `read_memory_file` is available, the connection uses agent mode.
+Read `MEMORY.md` in the selected scope. Follow its file links only when they apply to the task.
+Use `recall` for keyword search in this mode. File reads do not run models.
+In RAG mode, `recall` uses hybrid retrieval and reranking.
 
 Use the connected `recall` tool. If it is not available, state that limit and continue from project files.
 
-1. Use the project repository scope. Otherwise, read the Git origin.
+1. Use the project repository scope or an explicit personal scope. For an unknown project scope, read the Git origin.
    Remove the transport, credentials, last slash, and .git suffix.
    Replace the SSH host separator with a slash. Add the `repo:` prefix.
    If there is no stable identity, request one. A folder name is not a stable scope.

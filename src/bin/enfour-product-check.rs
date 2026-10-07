@@ -92,6 +92,11 @@ impl<'ast> Visit<'ast> for Prose {
         syn::visit::visit_expr_call(self, e);
     }
     fn visit_expr_method_call(&mut self, e: &'ast syn::ExprMethodCall) {
+        if e.method == "add"
+            && let Some(last) = e.args.last()
+        {
+            self.expression(last);
+        }
         if (e.method == "context" || e.method == "with_instructions")
             && let Some(first) = e.args.first()
         {

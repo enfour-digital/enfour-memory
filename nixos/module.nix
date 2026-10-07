@@ -13,7 +13,7 @@ let
 in {
   options.services.enfour-memory = {
     enable = lib.mkEnableOption "Enfour Memory";
-    image = lib.mkOption { type = lib.types.str; default = "enfour-memory:0.5.0"; };
+    image = lib.mkOption { type = lib.types.str; default = "enfour-memory:0.6.0"; };
     imageFile = lib.mkOption {
       type = lib.types.package;
       description = "Local Docker image archive. The service loads it before each start. No registry access.";

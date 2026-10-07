@@ -8,6 +8,7 @@ actor	n
 adapter	n
 address	n
 advisory	adj,n
+alias	n
 allocate	v
 allocated	v
 allocates	v
@@ -30,6 +31,7 @@ authenticated	adj
 authentication	n
 authorization	n
 axum	n
+background	adj
 backup	n
 basename	n
 batch	n
@@ -51,6 +53,7 @@ buffer	n
 build	v
 builds	v
 built	v
+bullet	n
 busy	adj
 byte	n
 cache	n,v
@@ -335,6 +338,7 @@ lexical-only	adj
 library	n
 license	n
 limit	n
+line	n
 link	n
 list	v
 listed	v
@@ -610,6 +614,7 @@ serialized	v
 serializes	v
 server	n
 service	n
+session	n
 setting	n
 setup	n
 severity	n

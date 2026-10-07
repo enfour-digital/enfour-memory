@@ -136,7 +136,22 @@ impl Store {
                 ))?;
             }
         }
-        db.execute_batch("COMMIT;")?;
+        // Transactional Git outbox. The mirror acknowledges only committed Git state.
+        let has_git: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='agent_git_events' AND type='table')", [], |r|r.get(0))?;
+        db.execute_batch("CREATE TABLE IF NOT EXISTS agent_git_events(seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, kind TEXT NOT NULL, object_id TEXT NOT NULL, data TEXT NOT NULL);")?;
+        if !has_git {
+            db.execute_batch("INSERT INTO agent_git_events(scope,kind,object_id,data) SELECT scope,'memory',id,data FROM memories ORDER BY rowid;
+                INSERT INTO agent_git_events(scope,kind,object_id,data) SELECT scope,'relation',id,data FROM relations ORDER BY rowid;")?;
+        }
+        for (table, kind) in [("memories", "memory"), ("relations", "relation")] {
+            for action in ["INSERT", "UPDATE"] {
+                db.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS agent_git_{table}_{action} AFTER {action} ON {table}
+                    BEGIN INSERT INTO agent_git_events(scope,kind,object_id,data) VALUES(NEW.scope,'{kind}',NEW.id,NEW.data); END;"))?;
+            }
+        }
+        db.execute_batch("CREATE TRIGGER IF NOT EXISTS agent_git_relation_delete AFTER DELETE ON relations
+            BEGIN INSERT INTO agent_git_events(scope,kind,object_id,data) VALUES(OLD.scope,'remove_relation',OLD.id,OLD.data); END;
+            COMMIT;")?;
         Ok(Self {
             db,
             language: crate::language::Language::load(

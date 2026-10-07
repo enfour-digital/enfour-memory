@@ -72,7 +72,7 @@ def helper(name, arguments, *, project_cwd=False):
     # Keep caller-relative file arguments intact. Wire checks use project fixtures.
     previous_argv, previous_cwd = sys.argv, Path.cwd()
     try:
-        command = {"download-models": "models", "install-clients": "clients",
+        command = {"memory-repo.py": "repo", "download-models": "models", "install-clients": "clients",
                    "score-retrieval": "bench score", "compare-retrieval": "bench compare",
                    "merge-benchmark": "bench merge", "prepare-locomo": "bench prepare locomo",
                    "prepare-scifact": "bench prepare scifact"}.get(name, name)
@@ -101,6 +101,8 @@ def main(arguments=None):
                       "Stop the service before migration or index changes.")
                 return 0
             return compose("run", "--rm", "--no-deps", "-T", "memory", *(rest[1:] if rest[0] == "--" else rest))
+        if command == "repo":
+            return helper("memory-repo.py", rest)
         if command in {"models", "clients"}:
             return helper({"models": "download-models", "clients": "install-clients"}[command], rest)
         if command == "bench" and rest:
@@ -141,8 +143,9 @@ def main(arguments=None):
                             ("models", "Fetch and verify local model files."),
                             ("clients", "Configure a local client with a file token.")]:
         commands.add_parser(name, help=help_text)
+    commands.add_parser("repo", help="Check, export, or import memory files.")
     check = commands.add_parser("check", help="Run one group of checks.")
-    check.add_argument("suite", choices=("helpers", "product", "mcp", "output", "skills", "dashboard"))
+    check.add_argument("suite", choices=("helpers", "product", "mcp", "output", "skills", "dashboard", "agent"))
     check.add_argument("--language", type=Path, default=Path(os.environ.get("ENFOUR_LANGUAGE", ROOT / "language-private/dictionary.json")))
     check.add_argument("--browser", help="Chromium command for dashboard checks.")
     bench = commands.add_parser("bench", help="Prepare data or run a selected benchmark.")

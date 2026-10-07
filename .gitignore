@@ -30,3 +30,6 @@ __pycache__/
 
 /audit*.json
 /reviewed-plan*.json
+
+/.agent-memory/
+/memory-exports/

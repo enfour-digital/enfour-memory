@@ -71,6 +71,37 @@ The public `/mcp/skills` endpoint also returns installation instructions. It has
 Use one stable scope for each project, such as `repo:example.com/team/project`.
 The skills give instructions for scope selection. One token gives access to all scopes.
 
+## Modes
+
+Select the MCP URL. Both modes use the same records, write checks, and result formats.
+
+| Route | Read behavior |
+| --- | --- |
+| `/mcp` or `/mcp/rag` | Hybrid search with embeddings and reranking. |
+| `/mcp/agent` | Read `MEMORY.md`, follow file links, and use keyword search without retrieval inference. |
+
+Agent mode adds file reads, repository validation, export, and one-record import.
+The file view follows the [Agent Memory Repo format](https://github.com/AgentMemoryRepo/agentmemoryrepo/blob/8798cb26c817d451a5ed6cba0ad8d9eca8d5ec3e/SPEC.md).
+SQLite stores the source records. The service creates a private Git repository for each scope in `state/.agent-memory/`.
+
+No project checkout or client Git setup is necessary. Each accepted change adds a SQLite queue event in the write transaction.
+A background process records each event in Git. Failed Git writes retry. Current reads continue through SQLite.
+
+`/api/status` reports `agent_git.applied_event`, `queued_event`, and `error`.
+
+Format checks examine the entry point, entries, metadata, dates, paths, and file links.
+Unknown metadata keys are accepted. Sources are optional in the format but mandatory for Enfour writes.
+Scripts are data. Scheduled consolidation is not included.
+
+```sh
+scripts/enfour repo check /path/to/memory-repo
+scripts/enfour repo export memory-exports/project --scope repo:example.com/team/project
+scripts/enfour repo import --help
+```
+
+Exports contain current records. Imports accept one exported Enfour record and repeat the writing checks before embedding.
+Git history starts when this feature is enabled. Earlier revisions stay in SQLite.
+
 ## Memory tools
 
 | Tool | Use |
@@ -104,13 +135,18 @@ The graph endpoints accept `?scope=…`. They return JSON or Graphviz DOT, indep
 
 ```mermaid
 flowchart TB
-    agent["Agent / browser"] --> transport["rmcp MCP / axum HTTP"]
+    agent["Agent / browser"] --> transport["rmcp MCP · agent / RAG routes<br/>axum HTTP"]
     transport --> engine["Memory engine · scope · revisions · evidence"]
     engine --> write["Write path · mandatory writing checks<br/>Harper grammar advice"]
     write --> chunks["Sentence chunks · 480-token budget"]
     chunks --> embed["fastembed · BGE-small"]
     embed --> db[("SQLite · history · relations · FTS5 · vectors")]
-    engine --> query["Recall · original query"]
+    engine --> navigate["Agent mode · index + linked files<br/>keyword search · format checks"]
+    db --> navigate
+    navigate --> result
+    db --> events["Durable Git event queue"]
+    events --> mirror["Private Git repositories · one per scope"]
+    engine --> query["RAG · original query"]
     query --> embed_query["BGE-small query vector"]
     embed_query --> hybrid["FTS5 + vector search · rank fusion"]
     db --> hybrid
@@ -137,7 +173,7 @@ flowchart TB
     save --> gate{"Hard errors?"}
     gate -- Yes --> report
     gate -- No --> chunks["Pack sentences and protected evidence · embed"]
-    chunks --> transaction["SQLite transaction · check revision<br/>save history + policy versions · indexes · generation"]
+    chunks --> transaction["SQLite transaction · check revision<br/>save history + policy versions · indexes · generation<br/>queue Git event"]
     transaction --> output["Result adapter · TOON / JSON"]
     docs["README · skills · tool text · CLI help · dashboard"] --> checks["Product checks · shared Rust validator"]
     checks --> human["Author repairs errors and reviews grammar advice"]
@@ -175,14 +211,14 @@ Eviction changes speed, not results. Changed text receives new embeddings.
 
 ## Operations
 
-Keep `state/`, `models/`, and `language-private/` external to Git. Language data mounts read-only.
+Keep `state/`, `models/`, and `language-private/` external to the public code repository. Language data mounts read-only.
 Create a consistent backup with:
 
 ```sh
 scripts/enfour cli --lexical-only backup /data/backup.sqlite
 ```
 
-The destination must not exist. Save the access token, models, dictionary, and runtime image in a different location.
+The destination must not exist. Save the private Git directory, access token, models, dictionary, and runtime image with the database backup.
 Stop the service before you restore data. Keep the previous state, including WAL and SHM files, until verification is complete.
 Rebuild indexes after changes to the embedding model or chunk format.
 
