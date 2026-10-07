@@ -1,15 +1,130 @@
 # Enfour Memory
 
-Local memory for coding agents. One Rust service stores facts, decisions, evidence, and revision history.
-Local models find and rank records. SQLite stores the text and 384-dimension vectors.
+Local memory for coding agents, with notes and file links and semantic search in one Rust service.
+Keep facts, exact evidence, and revision history across sessions.
 
-**rmcp · axum · fastembed · SQLite · Moka · TOON**
+[Connect](#connect) · [Two modes](#two-modes) · [Self-host](#self-host) · [Measurements](#measurements) · [Reference](#reference)
 
-No cloud inference or telemetry. Your agent can send retrieved text to its model provider.
+## Connect
 
-## Start
+Use an existing server's URL and bearer token. Add this to `~/.codex/config.toml` on the agent's computer:
 
-Use Linux x86-64, Docker Compose, Python 3.11 or newer, and about 3 GiB of RAM.
+```toml
+[mcp_servers.enfour-memory]
+url = "http://memory.example.com:7463/mcp/agent"
+http_headers = { Authorization = "Bearer YOUR_TOKEN" }
+startup_timeout_sec = 30
+tool_timeout_sec = 180
+```
+
+Replace the hostname and token. Keep the configuration private, then restart the client.
+Use `/mcp/rag` for hybrid search. The existing `/mcp` endpoint also uses RAG.
+One token gives access to all scopes. Use a trusted LAN, TLS proxy, or SSH tunnel.
+
+Install the skills on the agent's computer with Node.js and `npx`:
+
+```sh
+DISABLE_TELEMETRY=1 npx skills add http://memory.example.com:7463 --agent codex --skill enfour-recall enfour-maintain -g
+```
+
+The skills select a stable project scope, check saved claims, and help with memory writes. Try:
+
+> Save this project decision: use SQLite for local storage. Use this session as the source.
+
+In a new session:
+
+> Recall the storage decision for this project and show its source.
+
+The server runs the local models. No model files or memory checkout are necessary on clients.
+Enfour uses no cloud inference or telemetry. Your agent can send retrieved text to its model provider.
+
+## Two modes
+
+Change the endpoint to select how the agent reads. Both modes share records, writing checks, and revision history.
+
+<table>
+<thead><tr><th>Agent memory</th><th>RAG</th></tr></thead>
+<tbody>
+<tr><td nowrap><code>/mcp/agent</code><br/>Read project notes, follow file links, or search exact terms.</td><td nowrap><code>/mcp/rag</code> · <code>/mcp</code><br/>Search keywords and vectors, then rerank related passages.</td></tr>
+<tr>
+<td valign="top" nowrap><a href="assets/diagrams/agent.light.generated.svg"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/agent.dark.generated.svg"><img src="assets/diagrams/agent.light.generated.svg" width="440" alt="Agent memory: file and keyword reads from SQLite. Checked writes, local embeddings, and background Git history."></picture></a></td>
+<td valign="top" nowrap><a href="assets/diagrams/rag.light.generated.svg"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/rag.dark.generated.svg"><img src="assets/diagrams/rag.light.generated.svg" width="440" alt="RAG: query vectors, keyword and vector search, rank fusion, and reranking. The same checked writes and Git history."></picture></a></td>
+</tr>
+</tbody>
+</table>
+
+Open each graph for a larger view. The two columns show the same SQLite store.
+Writing rules must pass before inference. Harper grammar findings are advisory.
+
+Agent reads use no retrieval inference. Accepted writes update embeddings in each mode.
+Moka caches exact computation. Cache inputs and versions must be the same. Graph endpoints export JSON or DOT for a frontend.
+
+<details>
+<summary>Native Mermaid diagrams</summary>
+
+### Agent memory
+
+<!-- diagram: agent -->
+```mermaid
+flowchart TB
+    mcp("MCP · rmcp")
+    mcp -->|Read| files("Files / keywords")
+    files --> snapshot("SQLite snapshot")
+    snapshot --> data("Typed data / JSON")
+    data --> adapter("TOON / JSON<br/>Result adapter")
+    adapter --> client("Client<br/>Read or decode")
+    mcp -->|Write| rules("Writing rules<br/>Harper grammar")
+    rules --> embed("Sentence chunks<br/>BGE-small")
+    embed --> commit("SQLite commit<br/>+ Git event")
+    commit --> adapter
+    commit -.-> worker("Git task")
+    worker -.-> history("Private Git")
+    classDef default filter:none
+    classDef accent stroke:#8170c7,stroke-width:2px,filter:none
+    class rules,adapter accent
+```
+
+### RAG
+
+<!-- diagram: rag -->
+```mermaid
+flowchart TB
+    mcp("MCP · rmcp")
+    mcp -->|Read| query("BGE-small<br/>Query vector")
+    query --> search("FTS5 + vectors")
+    search --> fusion("Rank fusion")
+    fusion --> rank("GTE ModernBERT<br/>Rerank")
+    rank --> data("Typed data / JSON")
+    data --> adapter("TOON / JSON<br/>Result adapter")
+    adapter --> client("Client<br/>Read or decode")
+    mcp -->|Write| rules("Writing rules<br/>Harper grammar")
+    rules --> embed("Sentence chunks<br/>BGE-small")
+    embed --> commit("SQLite commit<br/>+ Git event")
+    commit --> adapter
+    commit -.-> worker("Git task")
+    worker -.-> history("Private Git")
+    classDef default filter:none
+    classDef accent stroke:#8170c7,stroke-width:2px,filter:none
+    class rules,adapter accent
+```
+
+</details>
+
+SQLite stores the source records. Each scope has a private Git repository that the service controls.
+
+Accepted changes queue Git events in the same database transaction. Failed Git updates retry. Current reads use SQLite.
+
+No client Git setup is necessary. Git history starts when this feature is enabled. Previous revisions stay in SQLite.
+
+The file view follows the [Agent Memory Repo format](https://github.com/AgentMemoryRepo/agentmemoryrepo/blob/8798cb26c817d451a5ed6cba0ad8d9eca8d5ec3e/SPEC.md).
+[Cognition's article](https://cognition.com/agent-memory-repo) shows how agents use memory files.
+
+## Self-host
+
+Use a Linux x86-64 server with Docker Compose, Python 3.11 or newer, and about 3 GiB of RAM.
+Get [ASD-STE100 Issue 9](https://www.asd-ste100.org/STE_downloads.html) and install Poppler.
+The private dictionary is mandatory for writes. Keep the PDF and extracted dictionary out of Git.
+
 Run these commands from the repository root:
 
 ```sh
@@ -21,227 +136,48 @@ scripts/enfour language --pdf /private/ASD-STE100_ISSUE9.pdf
 scripts/enfour up --build
 ```
 
-Get [ASD-STE100 Issue 9](https://www.asd-ste100.org/STE_downloads.html) and install Poppler before the language import.
-The importer verifies the PDF hash and dictionary layout. Keep the PDF and dictionary private.
-Missing or invalid language data blocks writes. Read operations stay available.
+Open <http://127.0.0.1:7463>. The token is in `state/access.token`.
+For LAN access, copy `.env.example` to `.env`, set `ENFOUR_BIND`, and add the hostname to `ENFOUR_HOSTS`.
+The default port is TCP 7463. The dashboard keeps its token only in memory.
 
-Open <http://127.0.0.1:7463>. Use the token from `state/access.token`.
-The dashboard keeps this token only in memory.
-
-```sh
-scripts/enfour status
-scripts/enfour logs --follow
-scripts/enfour down
-scripts/enfour --help
-```
-
-The operation commands use Python. The engine and MCP server use Rust.
 Builds use the local Linux Docker socket, Cargo downloads, and sccache.
-The existing shared compiler cache is used when available. Otherwise, builds use a local file cache.
-
-Use `up --build` after a new release build. Use `up` to start the existing image.
-
-## Connect
-
-Clients use the server URL and bearer token. The default port is **TCP 7463**.
-For LAN access, copy `.env.example` to `.env`. Set `ENFOUR_BIND` and add the server name to `ENFOUR_HOSTS`.
-Use a trusted LAN, TLS proxy, or SSH tunnel.
-
-For Codex on a client computer, add this section to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.enfour-memory]
-url = "http://memory.example.com:7463/mcp"
-http_headers = { Authorization = "Bearer YOUR_TOKEN" }
-startup_timeout_sec = 30
-tool_timeout_sec = 180
-```
-
-Replace the hostname and token. Keep the file private. Restart the client.
-For a client on the Linux server, `scripts/enfour clients` sets up the connector with a file token.
-Use `clients --help` for client selection and configuration source files.
-
-Install the two skills on the client computer:
-
-```sh
-DISABLE_TELEMETRY=1 npx skills add http://memory.example.com:7463 --agent codex --skill enfour-recall enfour-maintain -g
-```
-
-The public `/mcp/skills` endpoint also returns installation instructions. It has no access to memory data.
-Use one stable scope for each project, such as `repo:example.com/team/project`.
-The skills give instructions for scope selection. One token gives access to all scopes.
-
-## Modes
-
-Select the MCP URL. Both modes use the same records, write checks, and result formats.
-
-| Route | Read behavior |
-| --- | --- |
-| `/mcp` or `/mcp/rag` | Hybrid search with embeddings and reranking. |
-| `/mcp/agent` | Read `MEMORY.md`, follow file links, and use keyword search without retrieval inference. |
-
-Agent mode adds file reads, repository validation, export, and one-record import.
-The file view follows the [Agent Memory Repo format](https://github.com/AgentMemoryRepo/agentmemoryrepo/blob/8798cb26c817d451a5ed6cba0ad8d9eca8d5ec3e/SPEC.md).
-SQLite stores the source records. The service creates a private Git repository for each scope in `state/.agent-memory/`.
-
-No project checkout or client Git setup is necessary. Each accepted change adds a SQLite queue event in the write transaction.
-A background process records each event in Git. Failed Git writes retry. Current reads continue through SQLite.
-
-`/api/status` reports `agent_git.applied_event`, `queued_event`, and `error`.
-
-Format checks examine the entry point, entries, metadata, dates, paths, and file links.
-Unknown metadata keys are accepted. Sources are optional in the format but mandatory for Enfour writes.
-Scripts are data. Scheduled consolidation is not included.
-
-```sh
-scripts/enfour repo check /path/to/memory-repo
-scripts/enfour repo export memory-exports/project --scope repo:example.com/team/project
-scripts/enfour repo import --help
-```
-
-Exports contain current records. Imports accept one exported Enfour record and repeat the writing checks before embedding.
-Git history starts when this feature is enabled. Earlier revisions stay in SQLite.
-
-## Memory tools
-
-| Tool | Use |
-| --- | --- |
-| `recall` | Find project evidence. |
-| `validate_memory` | Check prose and return errors, advisory findings, and source ranges. |
-| `remember` | Save a fact, preference, decision, lesson, or checkpoint. |
-| `inspect` | Read a record and its revision history. |
-| `forget` | Hide a record from results. Keep its history. |
-| `relate` | Link current records with a typed relation and source. |
-| `graph` | Export nodes, edges, revision IDs, and sources. |
-
-Writes must have a source and the current revision. Use revision `0` for a new key.
-Inspect before updates. The agent selects the information to save and reviews its meaning.
-
-Tool results use TOON by default. Select the result text with the `minify` HTTP header:
-
-| Value | Format |
-| --- | --- |
-| `toon` or missing | TOON |
-| `uglify-json` | Compact JSON |
-| `none` | JSON with spaces and newlines |
-
-Only result text changes. Inputs, storage, retrieval, and reranking keep JSON or typed data.
-A client can read TOON directly or decode it to JSON. The server does not accept TOON inputs.
-
-For a frontend, use `/api/recall`, `/api/graph`, `/api/graph.dot`, and `/api/status` with bearer authentication.
-The graph endpoints accept `?scope=…`. They return JSON or Graphviz DOT, independent of `minify`.
-
-## Architecture
-
-```mermaid
-flowchart TB
-    agent["Agent / browser"] --> transport["rmcp MCP · agent / RAG routes<br/>axum HTTP"]
-    transport --> engine["Memory engine · scope · revisions · evidence"]
-    engine --> write["Write path · mandatory writing checks<br/>Harper grammar advice"]
-    write --> chunks["Sentence chunks · 480-token budget"]
-    chunks --> embed["fastembed · BGE-small"]
-    embed --> db[("SQLite · history · relations · FTS5 · vectors")]
-    engine --> navigate["Agent mode · index + linked files<br/>keyword search · format checks"]
-    db --> navigate
-    navigate --> result
-    db --> events["Durable Git event queue"]
-    events --> mirror["Private Git repositories · one per scope"]
-    engine --> query["RAG · original query"]
-    query --> embed_query["BGE-small query vector"]
-    embed_query --> hybrid["FTS5 + vector search · rank fusion"]
-    db --> hybrid
-    hybrid --> rerank["GTE ModernBERT · rerank candidates"]
-    rerank --> result["Typed result / JSON"]
-    db --> result
-    result --> adapter["Result adapter · TOON / JSON"]
-    adapter --> client["Client reads text or decodes TOON / JSON"]
-    db --> graph_export["JSON / DOT graph export"]
-    engine <--> cache["Moka · exact validation and computation caches"]
-```
-
-### Writing and grammar checks
-
-```mermaid
-flowchart TB
-    agent["Agent writes prose + exact evidence"] --> preflight["validate_memory · shared Rust validator"]
-    preflight --> rules["Dictionary + glossary · sentence and paragraph limits<br/>Contractions · punctuation · Markdown source ranges"]
-    preflight --> grammar["Harper · advisory grammar findings"]
-    rules --> report["Errors + advisory findings + repair guidance"]
-    grammar --> report
-    report --> review["Agent repairs errors and reviews meaning<br/>Negation · quantities · conditions · uncertainty"]
-    review --> save["remember · write boundary repeats validation"]
-    save --> gate{"Hard errors?"}
-    gate -- Yes --> report
-    gate -- No --> chunks["Pack sentences and protected evidence · embed"]
-    chunks --> transaction["SQLite transaction · check revision<br/>save history + policy versions · indexes · generation<br/>queue Git event"]
-    transaction --> output["Result adapter · TOON / JSON"]
-    docs["README · skills · tool text · CLI help · dashboard"] --> checks["Product checks · shared Rust validator"]
-    checks --> human["Author repairs errors and reviews grammar advice"]
-```
-
-Enfour applies a 20-word sentence limit and six-sentence paragraph limit to prose.
-Preserve exact evidence in Markdown code or quotations. Add prose about the evidence and a source.
-Queries, identifiers, and model prefixes keep their original form. Vectors contain numbers, not language.
-
-Harper findings are advisory. Passed checks do not show complete STE compliance.
-[Contextual review is necessary](https://www.asd-ste100.org/STEsoftware.html).
-Rejected writes use no inference and change no records or indexes.
-Accepted revisions record policy, validator, dictionary, and glossary versions.
+Use `scripts/enfour --help` for commands. Use `up --build` after a new release build.
 
 <details>
-<summary>Issue 9 rule coverage</summary>
+<summary>NixOS and recovery</summary>
 
-| Coverage | Rules | Checks or review |
-| --- | --- | --- |
-| Enforced | 1.1 | Dictionary membership and software glossary. |
-| Enforced | 4.1, 5.1, 6.3 | 20-word limit. Issue 9 has a 25-word limit in descriptions. |
-| Enforced | 4.2, 6.6 | Unambiguous contractions and paragraph length. |
-| Enforced | 8.1, 8.4–8.7 | Prose semicolons and word counting. Review ambiguous names. |
-| Advisory | 1.2, 1.4, 2.1, 3.1–3.6 | Grammatical roles, forms, noun groups, and possible passive constructions. |
-| Contextual review | 1.3, 1.5–1.14, 2.2, 3.7, 4.3–4.5, 5.2–5.5 | Meanings, technical names, articles, lists, and instructions. |
-| Contextual review | 6.1–6.2, 6.4–6.5, 7.1–7.3, 8.2–8.3, 9.1–9.4 | Information order, related paragraphs, risk statements, punctuation, and consistent terms. |
+Import [nixos/module.nix](nixos/module.nix). Set `services.enfour-memory.enable = true` and `imageFile` to a pinned image archive.
+Before activation, stop Compose. Copy state, models, and language data into the module's `dataDir`.
+Use `state/`, `models/`, and `language/` there, with the configured `uid` and `gid`.
+The boot service is `enfour-memory.service`.
 
-</details>
+Use systemd to control it. The Python commands control the checkout's Compose service.
 
-Recall uses one database snapshot. It combines keyword and vector results, then reranks up to 64 candidates.
-
-Caches use exact inputs and model identities. Validation also uses policy and dictionary fingerprints.
-Ranking cache keys include scope, database generation, and expiry. Cache hits check expiry again.
-Eviction changes speed, not results. Changed text receives new embeddings.
-
-## Operations
-
-Keep `state/`, `models/`, and `language-private/` external to the public code repository. Language data mounts read-only.
-Create a consistent backup with:
+Create a consistent database backup:
 
 ```sh
 scripts/enfour cli --lexical-only backup /data/backup.sqlite
 ```
 
-The destination must not exist. Save the private Git directory, access token, models, dictionary, and runtime image with the database backup.
-Stop the service before you restore data. Keep the previous state, including WAL and SHM files, until verification is complete.
-Rebuild indexes after changes to the embedding model or chunk format.
+The destination must not exist. Also save private Git history, the token, models, dictionary, and runtime image.
 
-For NixOS, import [nixos/module.nix](nixos/module.nix). It creates the boot service `enfour-memory.service`.
-Set `services.enfour-memory.enable = true` and `imageFile` to a pinned Docker image archive in the Nix store.
-Before activation, stop Compose and copy state, models, and language data into the configured `dataDir`.
-Use `state/`, `models/`, and `language/` there. Set ownership to the module's `uid` and `gid`.
+Stop writers before a database and Git backup. Stop the service before restore or migration.
+Keep the previous state, including WAL and SHM files, until verification is complete.
 
-Use systemd for this service. The Python commands control the checkout's Compose service.
+Rebuild indexes after model or chunk-format changes. Review existing memories before `migrate-language`. Keep the original revisions and migration backup.
 
-Existing memories must have reviewed revisions before policy migration. The native CLI includes `audit-language` and `migrate-language`.
-Review facts, exact evidence, and relations. Stop the service before migration. Keep its backup until verification is complete.
+</details>
 
 ## Measurements
 
 Reference host: **ThinkPad T480s · i7-8650U · 16 GiB RAM**. Service limit: two CPUs and 3 GiB.
-Models: quantized BGE-small-en-v1.5 and GTE ModernBERT, about 211 MiB of files.
+Quantized BGE-small-en-v1.5 and GTE ModernBERT use about 211 MiB of model files.
 
 The selected profile measured **74.63% Recall@5** and **0.6779 nDCG@10** on 340 LoCoMo development queries.
 These queries selected the profile. This is not an independent test result or leaderboard claim.
 
-TOON measurements use v0.4 fixtures without validation metadata. Each case has 20 warmups and 2,000 measured runs.
-Times include result allocation. They do not include inference, transport, or MCP envelopes. Bytes are not tokens.
+TOON measurements use v0.4 fixtures without validation metadata: 20 warmups and 2,000 measured runs for each case.
+Times include result allocation, without inference, transport, or MCP envelopes. Bytes are not tokens.
 
 | Payload | TOON bytes / µs | Compact JSON bytes / µs | Pretty JSON bytes / µs |
 | --- | ---: | ---: | ---: |
@@ -252,22 +188,68 @@ Times include result allocation. They do not include inference, transport, or MC
 Writing checks measured 1.626 ms at p50 without cache and 6.165 µs for exact cache hits.
 This short-memory sample used 50 runs for each case. The first grammar report used 990 ms.
 
-## Development
+## Reference
 
-Use `scripts/enfour --help` for commands and each command's `--help` for arguments.
-Existing `cargo-local` and `benchmark-local` commands are also available.
+<details>
+<summary>Tools, formats, and frontend APIs</summary>
+
+| Tools | Purpose |
+| --- | --- |
+| `recall`, `inspect` | Find evidence and read revision history. |
+| `validate_memory`, `remember` | Check prose, then save a revision with a source. |
+| `forget`, `relate`, `graph` | Hide records, link facts, and export relations. |
+| `read_memory_file`, `export_memory_repo` | Read or export current scoped files in agent mode. |
+| `validate_memory_repo`, `import_memory_record` | Check file structure or import one reviewed Enfour record. |
+
+Writes must have a source and the current revision. Use revision `0` for a new key.
+Imports repeat writing checks before inference. Repository checks validate structure, metadata, dates, paths, and links. They cannot verify facts.
+
+TOON is the default result text. Set the `minify` header to `uglify-json` for compact JSON or `none` for JSON with spaces and newlines.
+Inputs, storage, and computation keep typed data or JSON. Only return text changes.
+
+Authenticated frontend endpoints: `/api/recall`, `/api/graph`, `/api/graph.dot`, `/api/memory-repo`, and `/api/status`.
+Graph and repository exports accept `?scope=…`. The server reports Git errors and queue counts in `agent_git`.
+The public `/mcp/skills` endpoint gives installation instructions without memory access.
+
+</details>
+
+<details>
+<summary>Writing policy and rule coverage</summary>
+
+Enfour applies a 20-word sentence limit and six-sentence paragraph limit.
+Keep exact evidence in code or quotations, with prose about the evidence and a source.
+Queries, identifiers, and model prefixes keep their original form. Harper grammar findings are advisory.
+Rejected writes use no inference and change no records or indexes.
+Accepted revisions record policy, validator, dictionary, and glossary versions.
+
+| Coverage | Issue 9 rules |
+| --- | --- |
+| Enforced | 1.1, 4.1, 5.1, 6.3, 4.2, 6.6, 8.1, 8.4–8.7 |
+| Advisory | 1.2, 1.4, 2.1, 3.1–3.6 |
+| Contextual review | 1.3, 1.5–1.14, 2.2, 3.7, 4.3–4.5, 5.2–5.5, 6.1–6.2, 6.4–6.5, 7.1–7.3, 8.2–8.3, 9.1–9.4 |
+
+The 20-word limit is below the 25-word limit for descriptions in Issue 9.
+Passed checks do not show complete compliance. [Review meaning and context](https://www.asd-ste100.org/STEsoftware.html), including negation, quantities, conditions, and uncertainty.
+
+</details>
+
+<details>
+<summary>Development and diagram source</summary>
+
+Use targeted checks for regular changes. With a fix, include the failure and the checks that apply.
+Public tests use a synthetic dictionary. Release builds must remove `test-support`.
 
 ```sh
 scripts/enfour check helpers
-scripts/enfour check dashboard
-scripts/enfour cargo test --locked --offline --features test-support
-scripts/enfour cargo build --locked --offline --features product-check
 scripts/enfour check product --language language-private/dictionary.json
-scripts/enfour bench --help
+scripts/enfour diagrams --setup
+scripts/enfour diagrams
+scripts/enfour diagrams --check
 ```
 
-The dashboard check uses Chromium and local fixtures. A running memory service is not necessary.
-Use targeted checks for regular changes. Run retrieval evaluations at evaluation milestones.
-Public tests use a synthetic dictionary with `test-support`. Release builds must remove that feature.
+Diagram tools use Node.js, npm, and Chromium on the computer that creates these files only.
+SVGs come from the Mermaid blocks above. Run retrieval evaluations at evaluation milestones.
 
-MIT. See [LICENSE](LICENSE). TOON test fixtures keep their license and provenance.
+</details>
+
+[MIT license](LICENSE). TOON fixtures keep their license and provenance.

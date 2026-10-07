@@ -1,0 +1,10 @@
+{
+  "name": "enfour-diagrams",
+  "private": true,
+  "dependencies": {
+    "@fontsource/inter": "5.3.0",
+    "github-markdown-css": "5.9.0",
+    "marked": "16.4.2",
+    "mermaid": "12.1.0"
+  }
+}

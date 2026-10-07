@@ -33,3 +33,4 @@ __pycache__/
 
 /.agent-memory/
 /memory-exports/
+/build/diagrams/node_modules/

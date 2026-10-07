@@ -37,7 +37,7 @@ class Commands(unittest.TestCase):
         return path
 
     def test_help_never_runs_docker_or_fetches_data(self):
-        commands = [[], ["up"], ["connect"], ["cargo"], ["cli"], ["models"], ["clients"],
+        commands = [[], ["up"], ["connect"], ["cargo"], ["cli"], ["models"], ["clients"], ["diagrams"],
                     ["language"], ["check"], ["bench"], ["bench", "run"],
                     ["bench", "prepare", "locomo"], ["bench", "prepare", "scifact"],
                     ["bench", "score"], ["bench", "compare"], ["bench", "merge"], ["repo"], ["repo", "check"], ["repo", "export"], ["repo", "import"]]
