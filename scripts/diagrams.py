@@ -19,6 +19,7 @@ import urllib.parse
 ROOT = Path(__file__).resolve().parent.parent
 DEPS = ROOT / 'build/diagrams'
 ASSETS = ROOT / 'assets/diagrams'
+DISPLAY_WIDTHS = {'rag': 880, 'write': 440, 'recall': 440}
 THEMES = {
     'light': {'background': '#ffffff', 'primaryColor': '#f7f8fa', 'primaryTextColor': '#20242c',
               'primaryBorderColor': '#cdd2db', 'lineColor': '#79828f', 'edgeLabelBackground': '#ffffff'},
@@ -29,8 +30,8 @@ THEMES = {
 
 def sources(readme):
     blocks = re.findall(r'<!-- diagram: ([a-z]+) -->\s*```mermaid\n(.*?)\n```', readme, re.S)
-    if [name for name, _ in blocks] != ['rag']:
-        raise ValueError('The README must contain one RAG graph block.')
+    if [name for name, _ in blocks] != ['rag', 'write', 'recall']:
+        raise ValueError('The README must contain service, write, and recall graph blocks.')
     return blocks
 
 
@@ -123,11 +124,11 @@ def render(evaluate, name, source, theme, css):
         const root = new DOMParser().parseFromString(svg, 'text/html').querySelector('svg');
         if(!root) throw new Error('Missing SVG root');
         const style = document.createElementNS('http://www.w3.org/2000/svg','style');
-        style.textContent=fonts+'.node rect,.node polygon,.node path{filter:none!important}'; root.prepend(style);
+        style.textContent=fonts+'.node rect,.node polygon,.node path,.cluster rect{filter:none!important}'; root.prepend(style);
         root.setAttribute('style','background:'+background);
         const box=root.getAttribute('viewBox').split(/\\s+/).map(Number);
         root.setAttribute('width',box[2]); root.setAttribute('height',box[3]);
-        return {svg:new XMLSerializer().serializeToString(root)+'\\n',width:box[2],height:box[3],fontAt440:18*440/box[2]};
+        return {svg:new XMLSerializer().serializeToString(root)+'\\n',width:box[2],height:box[3]};
     })()''')
 
 
@@ -158,21 +159,26 @@ def preview(page, evaluate, readme, blocks, directory):
             document.body.style.background=''' + json.dumps(THEMES[theme]['background']))
         for width, label in [(1030, 'desktop'), (390, 'mobile')]:
             page('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 1200, 'deviceScaleFactor': 1, 'mobile': False})
-            evaluate('scrollTo(0,0); document.querySelector("table").scrollLeft=0; Promise.all(Array.from(document.images,img=>img.decode()))')
+            evaluate('scrollTo(0,0); for(const t of document.querySelectorAll("table"))t.scrollLeft=0; Promise.all(Array.from(document.images,img=>img.decode()))')
             settled()
-            layout = evaluate('''(()=>{const t=document.querySelector('table');
-                return {width:t.clientWidth,scrollWidth:t.scrollWidth,pageWidth:document.documentElement.scrollWidth,
-                    images:Array.from(t.querySelectorAll('img'),i=>({width:i.width,loaded:i.naturalWidth>0,src:i.currentSrc}))};})()''')
-            if layout['pageWidth'] > width or not all(i['loaded'] and i['width'] >= 400 and f'.{theme}.' in i['src'] for i in layout['images']):
-                raise ValueError('The graph table is too small.\n' + json.dumps(layout))
             capture(f'{theme}-{label}-page.png', '''(()=>{const b=document.querySelector('table').getBoundingClientRect();
                 return {x:0,y:0,width:innerWidth,height:Math.min(b.bottom+scrollY+150,3000)}})()''')
-            capture(f'{theme}-{label}-table.png', '(' + rectangle + ')(document.querySelector("table"))')
-            if label == 'mobile':
-                offset = evaluate('(()=>{const t=document.querySelector("table");t.scrollLeft=t.scrollWidth;return t.scrollLeft;})()')
-                if offset <= 0:
-                    raise ValueError('The table cannot move.')
-                capture(f'{theme}-{label}-rag.png', '(' + rectangle + ')(document.querySelector("table"))')
+            for name, _ in blocks:
+                selector = json.dumps(f'img[src="assets/diagrams/{name}.light.generated.svg"]')
+                table = f'document.querySelector({selector}).closest("table")'
+                layout = evaluate('''(()=>{const t=''' + table + ''';
+                    return {width:t.clientWidth,scrollWidth:t.scrollWidth,pageWidth:document.documentElement.scrollWidth,
+                        images:Array.from(t.querySelectorAll('img'),i=>({width:i.width,naturalWidth:i.naturalWidth,loaded:i.naturalWidth>0,src:i.currentSrc}))};})()''')
+                if layout['pageWidth'] > width or not layout['images'] or not all(
+                    i['loaded'] and 18 * i['width'] / i['naturalWidth'] >= 14 and f'.{theme}.' in i['src'] for i in layout['images']
+                ):
+                    raise ValueError('The graph table is too small.\n' + json.dumps(layout))
+                capture(f'{theme}-{label}-{name}.png', '(' + rectangle + ')(' + table + ')')
+                if label == 'mobile':
+                    offset = evaluate('(()=>{const t=' + table + ';t.scrollLeft=t.scrollWidth;return t.scrollLeft;})()')
+                    if offset <= 0:
+                        raise ValueError('The table cannot move.')
+                    capture(f'{theme}-{label}-{name}-scrolled.png', '(' + rectangle + ')(' + table + ')')
         # Native Mermaid blocks remain in the README and get a separate syntax/layout preview.
         page('Emulation.setDeviceMetricsOverride', {'width': 1030, 'height': 1200, 'deviceScaleFactor': 1, 'mobile': False})
         for name, source in blocks:
@@ -206,7 +212,7 @@ def main():
         for name, source in blocks:
             for theme in THEMES:
                 result = render(evaluate, name, source, theme, css)
-                if result['fontAt440'] < 14:
+                if 18 * DISPLAY_WIDTHS[name] / result['width'] < 14:
                     raise ValueError(f'The graph text is too small: {name}.')
                 generated[f'{name}.{theme}.generated.svg'] = result['svg'].encode()
                 print(f'{name} / {theme}: {result["width"]:.0f} × {result["height"]:.0f}.')
