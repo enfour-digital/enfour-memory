@@ -80,7 +80,7 @@ flowchart TB
 
 </details>
 
-Agent memory development is on `experimental/agent-memory`. Use a different state directory for that branch.
+Use `main` for RAG. Agent memory development is on `experimental/agent-memory`. Use a different state directory for that branch.
 
 ## Self-host
 
