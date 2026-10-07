@@ -142,3 +142,119 @@ fn lexical_recall_handles_identifiers_and_inflections() {
         assert_eq!(e.recall(&m.scope, query, 3).unwrap()[0].memory.id, m.id);
     }
 }
+
+#[test]
+fn fresh_rag_database_has_no_git_outbox() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::open_test(&dir.path().join("memory.db"), None).unwrap();
+    let count: i64 = engine
+        .store
+        .db
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name LIKE 'agent_git_%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn rag_retires_legacy_git_triggers_without_losing_memory_or_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("memory.db");
+    let mut engine = Engine::open_test(&path, None).unwrap();
+    // Model the schema from the experimental branch, including every event trigger.
+    engine
+        .store
+        .db
+        .execute_batch(
+            "CREATE TABLE agent_git_events(
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL,
+        kind TEXT NOT NULL, object_id TEXT NOT NULL, data TEXT NOT NULL);",
+        )
+        .unwrap();
+    for (table, kind) in [("memories", "memory"), ("relations", "relation")] {
+        for action in ["INSERT", "UPDATE"] {
+            engine
+                .store
+                .db
+                .execute_batch(&format!(
+                    "CREATE TRIGGER agent_git_{table}_{action} AFTER {action} ON {table}
+                 BEGIN INSERT INTO agent_git_events(scope,kind,object_id,data)
+                 VALUES(NEW.scope,'{kind}',NEW.id,NEW.data); END;"
+                ))
+                .unwrap();
+        }
+    }
+    engine
+        .store
+        .db
+        .execute_batch(
+            "CREATE TRIGGER agent_git_relation_delete AFTER DELETE ON relations
+        BEGIN INSERT INTO agent_git_events(scope,kind,object_id,data)
+        VALUES(OLD.scope,'remove_relation',OLD.id,OLD.data); END;",
+        )
+        .unwrap();
+    let a = engine.remember(note("database")).unwrap();
+    let b = engine.remember(note("reliability")).unwrap();
+    engine
+        .store
+        .relate(Relation {
+            scope: a.scope.clone(),
+            from: a.id.clone(),
+            to: b.id.clone(),
+            kind: "supports".into(),
+            source: "test://evidence".into(),
+            from_revision: 1,
+            to_revision: 1,
+        })
+        .unwrap();
+    let graph = engine.store.graph(&a.scope).unwrap();
+    let history = serde_json::to_value(engine.store.history(&a.scope, &a.id).unwrap()).unwrap();
+    let events: Vec<String> = engine
+        .store
+        .db
+        .prepare("SELECT data FROM agent_git_events ORDER BY seq")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(events.len(), 3);
+    drop(engine);
+
+    let mut engine = Engine::open_test(&path, None).unwrap();
+    assert_eq!(engine.store.graph(&a.scope).unwrap(), graph);
+    assert_eq!(
+        serde_json::to_value(engine.store.history(&a.scope, &a.id).unwrap()).unwrap(),
+        history
+    );
+    assert_eq!(engine.recall(&a.scope, "SQLite", 5).unwrap().len(), 2);
+    let triggers: i64 = engine
+        .store
+        .db
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name LIKE 'agent_git_%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(triggers, 0);
+    let mut update = note("database");
+    update.expected_revision = 1;
+    update.content = "Use SQLite WAL for local storage".into();
+    assert_eq!(engine.remember(update).unwrap().revision, 2);
+    let after: Vec<String> = engine
+        .store
+        .db
+        .prepare("SELECT data FROM agent_git_events ORDER BY seq")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(after, events);
+    assert_eq!(engine.store.history(&a.scope, &a.id).unwrap().len(), 2);
+    engine.store.check().unwrap();
+}

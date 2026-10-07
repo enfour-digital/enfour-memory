@@ -1,9 +1,9 @@
 # Enfour Memory
 
-Local memory for coding agents, with notes and file links and semantic search in one Rust service.
+Local RAG for coding agents, with keyword search and semantic search in one Rust service.
 Keep facts, exact evidence, and revision history across sessions.
 
-[Connect](#connect) · [Two modes](#two-modes) · [Self-host](#self-host) · [Measurements](#measurements) · [Reference](#reference)
+[Connect](#connect) · [Architecture](#architecture) · [Self-host](#self-host) · [Measurements](#measurements) · [Reference](#reference)
 
 ## Connect
 
@@ -11,14 +11,14 @@ Use an existing server's URL and bearer token. Add this to `~/.codex/config.toml
 
 ```toml
 [mcp_servers.enfour-memory]
-url = "http://memory.example.com:7463/mcp/agent"
+url = "http://memory.example.com:7463/mcp"
 http_headers = { Authorization = "Bearer YOUR_TOKEN" }
 startup_timeout_sec = 30
 tool_timeout_sec = 180
 ```
 
 Replace the hostname and token. Keep the configuration private, then restart the client.
-Use `/mcp/rag` for hybrid search. The existing `/mcp` endpoint also uses RAG.
+Both `/mcp` and `/mcp/rag` use hybrid retrieval and reranking.
 One token gives access to all scopes. Use a trusted LAN, TLS proxy, or SSH tunnel.
 
 Install the skills on the agent's computer with Node.js and `npx`:
@@ -38,53 +38,25 @@ In a new session:
 The server runs the local models. No model files or memory checkout are necessary on clients.
 Enfour uses no cloud inference or telemetry. Your agent can send retrieved text to its model provider.
 
-## Two modes
+## Architecture
 
-Change the endpoint to select how the agent reads. Both modes share records, writing checks, and revision history.
+SQLite stores source records and revisions. Local models find and rank passages for the agent.
+Writing rules must pass before inference. Harper grammar findings are advisory.
 
 <table>
-<thead><tr><th>Agent memory</th><th>RAG</th></tr></thead>
+<thead><tr><th>RAG</th></tr></thead>
 <tbody>
-<tr><td nowrap><code>/mcp/agent</code><br/>Read project notes, follow file links, or search exact terms.</td><td nowrap><code>/mcp/rag</code> · <code>/mcp</code><br/>Search keywords and vectors, then rerank related passages.</td></tr>
-<tr>
-<td valign="top" nowrap><a href="assets/diagrams/agent.light.generated.svg"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/agent.dark.generated.svg"><img src="assets/diagrams/agent.light.generated.svg" width="440" alt="Agent memory: file and keyword reads from SQLite. Checked writes, local embeddings, and background Git history."></picture></a></td>
-<td valign="top" nowrap><a href="assets/diagrams/rag.light.generated.svg"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/rag.dark.generated.svg"><img src="assets/diagrams/rag.light.generated.svg" width="440" alt="RAG: query vectors, keyword and vector search, rank fusion, and reranking. The same checked writes and Git history."></picture></a></td>
-</tr>
+<tr><td nowrap><code>/mcp</code> · <code>/mcp/rag</code><br/>Search keywords and vectors, then rerank related passages.</td></tr>
+<tr><td valign="top" nowrap><a href="assets/diagrams/rag.light.generated.svg"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/rag.dark.generated.svg"><img src="assets/diagrams/rag.light.generated.svg" width="440" alt="RAG: query vectors, keyword and vector search, rank fusion, and reranking. Checked writes update SQLite and embeddings."></picture></a></td></tr>
 </tbody>
 </table>
 
-Open each graph for a larger view. The two columns show the same SQLite store.
-Writing rules must pass before inference. Harper grammar findings are advisory.
-
-Agent reads use no retrieval inference. Accepted writes update embeddings in each mode.
-Moka caches exact computation. Cache inputs and versions must be the same. Graph endpoints export JSON or DOT for a frontend.
+Open the graph for a larger view. Accepted writes update embeddings before the SQLite transaction.
+Moka caches exact computation. Cache inputs and versions must be the same.
+Graph endpoints export JSON or DOT for a frontend.
 
 <details>
-<summary>Native Mermaid diagrams</summary>
-
-### Agent memory
-
-<!-- diagram: agent -->
-```mermaid
-flowchart TB
-    mcp("MCP · rmcp")
-    mcp -->|Read| files("Files / keywords")
-    files --> snapshot("SQLite snapshot")
-    snapshot --> data("Typed data / JSON")
-    data --> adapter("TOON / JSON<br/>Result adapter")
-    adapter --> client("Client<br/>Read or decode")
-    mcp -->|Write| rules("Writing rules<br/>Harper grammar")
-    rules --> embed("Sentence chunks<br/>BGE-small")
-    embed --> commit("SQLite commit<br/>+ Git event")
-    commit --> adapter
-    commit -.-> worker("Git task")
-    worker -.-> history("Private Git")
-    classDef default filter:none
-    classDef accent stroke:#8170c7,stroke-width:2px,filter:none
-    class rules,adapter accent
-```
-
-### RAG
+<summary>Native Mermaid diagram</summary>
 
 <!-- diagram: rag -->
 ```mermaid
@@ -99,10 +71,8 @@ flowchart TB
     adapter --> client("Client<br/>Read or decode")
     mcp -->|Write| rules("Writing rules<br/>Harper grammar")
     rules --> embed("Sentence chunks<br/>BGE-small")
-    embed --> commit("SQLite commit<br/>+ Git event")
-    commit --> adapter
-    commit -.-> worker("Git task")
-    worker -.-> history("Private Git")
+    embed --> commit("SQLite transaction")
+    commit --> data
     classDef default filter:none
     classDef accent stroke:#8170c7,stroke-width:2px,filter:none
     class rules,adapter accent
@@ -110,14 +80,7 @@ flowchart TB
 
 </details>
 
-SQLite stores the source records. Each scope has a private Git repository that the service controls.
-
-Accepted changes queue Git events in the same database transaction. Failed Git updates retry. Current reads use SQLite.
-
-No client Git setup is necessary. Git history starts when this feature is enabled. Previous revisions stay in SQLite.
-
-The file view follows the [Agent Memory Repo format](https://github.com/AgentMemoryRepo/agentmemoryrepo/blob/8798cb26c817d451a5ed6cba0ad8d9eca8d5ec3e/SPEC.md).
-[Cognition's article](https://cognition.com/agent-memory-repo) shows how agents use memory files.
+Agent memory development is on `experimental/agent-memory`. Use a different state directory for that branch.
 
 ## Self-host
 
@@ -159,10 +122,13 @@ Create a consistent database backup:
 scripts/enfour cli --lexical-only backup /data/backup.sqlite
 ```
 
-The destination must not exist. Also save private Git history, the token, models, dictionary, and runtime image.
+The destination must not exist. Also save the token, models, dictionary, and runtime image.
 
-Stop writers before a database and Git backup. Stop the service before restore or migration.
+Stop writers before a database backup. Stop the service before restore or migration.
 Keep the previous state, including WAL and SHM files, until verification is complete.
+
+Existing records and revisions stay in SQLite after an update from the agent memory branch.
+Old Git files and events stay in storage without new updates.
 
 Rebuild indexes after model or chunk-format changes. Review existing memories before `migrate-language`. Keep the original revisions and migration backup.
 
@@ -198,17 +164,14 @@ This short-memory sample used 50 runs for each case. The first grammar report us
 | `recall`, `inspect` | Find evidence and read revision history. |
 | `validate_memory`, `remember` | Check prose, then save a revision with a source. |
 | `forget`, `relate`, `graph` | Hide records, link facts, and export relations. |
-| `read_memory_file`, `export_memory_repo` | Read or export current scoped files in agent mode. |
-| `validate_memory_repo`, `import_memory_record` | Check file structure or import one reviewed Enfour record. |
 
 Writes must have a source and the current revision. Use revision `0` for a new key.
-Imports repeat writing checks before inference. Repository checks validate structure, metadata, dates, paths, and links. They cannot verify facts.
 
 TOON is the default result text. Set the `minify` header to `uglify-json` for compact JSON or `none` for JSON with spaces and newlines.
 Inputs, storage, and computation keep typed data or JSON. Only return text changes.
 
-Authenticated frontend endpoints: `/api/recall`, `/api/graph`, `/api/graph.dot`, `/api/memory-repo`, and `/api/status`.
-Graph and repository exports accept `?scope=…`. The server reports Git errors and queue counts in `agent_git`.
+Authenticated frontend endpoints: `/api/recall`, `/api/graph`, `/api/graph.dot`, and `/api/status`.
+Graph exports accept `?scope=…`.
 The public `/mcp/skills` endpoint gives installation instructions without memory access.
 
 </details>

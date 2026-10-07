@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand};
 use enfour_memory::{
     engine::Engine,
     output::OutputFormat,
-    server::{MemoryServer, Mode, Recall, Scope},
+    server::{MemoryServer, Recall, Scope},
 };
 use rmcp::{
     ServiceExt,
@@ -52,16 +52,11 @@ struct Cli {
         default_value = "language-private/dictionary.json"
     )]
     language: PathBuf,
-    /// Select tools for stdio. HTTP has an endpoint for each mode.
-    #[arg(long, global = true, value_enum, default_value = "rag")]
-    mode: Mode,
     #[command(subcommand)]
     command: Command,
 }
 #[derive(Subcommand)]
 enum Command {
-    /// Check memory repository files without database access or inference.
-    ValidateRepo { input: PathBuf },
     /// Audit current memories. The output can contain private source text.
     AuditLanguage,
     /// Apply reviewed revisions during maintenance. Create a backup first.
@@ -206,17 +201,7 @@ async fn dot(State(s): State<MemoryServer>, Query(r): Query<Scope>) -> Response 
         Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     }
 }
-async fn memory_repo(State(s): State<MemoryServer>, Query(r): Query<Scope>) -> Response {
-    match s
-        .run(move |e| enfour_memory::agent_repo::snapshot(&e.store, &r.scope))
-        .await
-    {
-        Ok(v) => Json(v).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
-    }
-}
 async fn status(State(s): State<MemoryServer>) -> Response {
-    let git_status = s.git_status.clone();
     match s
         .run(move |e| {
             let mut v = e.store.stats()?;
@@ -228,18 +213,6 @@ async fn status(State(s): State<MemoryServer>) -> Response {
             .into();
             v["models"] = e.models.as_ref().map(|m| m.info()).into();
             v["cache"] = e.cache_info();
-            if let Some(git) = git_status {
-                let mut state = git
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("The Git state cannot be read."))?
-                    .clone();
-                state.queued_event = e.store.db.query_row(
-                    "SELECT coalesce(max(seq),0) FROM agent_git_events",
-                    [],
-                    |r| r.get(0),
-                )?;
-                v["agent_git"] = serde_json::to_value(state)?;
-            }
             v["rerank_candidates"] = e
                 .models
                 .as_ref()
@@ -263,20 +236,6 @@ async fn main() {
 async fn run() -> Result<()> {
     let cli = Cli::parse();
     match &cli.command {
-        Command::ValidateRepo { input } => {
-            ensure!(
-                std::fs::metadata(input)?.len()
-                    <= (enfour_memory::agent_repo::MAX_BYTES * 2) as u64,
-                "The input file is above its byte limit."
-            );
-            let files = serde_json::from_slice(&std::fs::read(input)?)?;
-            let report = enfour_memory::agent_repo::validate(&files);
-            println!("{}", cli.minify.encode(&serde_json::to_value(&report)?)?);
-            if !report.accepted {
-                std::process::exit(2);
-            }
-            return Ok(());
-        }
         Command::Backup { destination } => {
             enfour_memory::store::Store::open(&cli.db)?.backup(destination)?;
             println!("The backup is complete.");
@@ -419,28 +378,12 @@ async fn run() -> Result<()> {
     engine.set_cache_enabled(!cli.no_cache);
     match cli.command {
         Command::Stdio => {
-            let stop = tokio_util::sync::CancellationToken::new();
-            let _cancel_on_exit = stop.clone().drop_guard();
-            let mut server = MemoryServer::new(engine);
-            let directory = cli
-                .db
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .join(".agent-memory");
-            server.git_status = Some(enfour_memory::git_memory::start(
-                cli.db.clone(),
-                directory,
-                stop.child_token(),
-            ));
-            let result = server
-                .with_mode(cli.mode)
+            MemoryServer::new(engine)
                 .with_output_format(cli.minify)
                 .serve(stdio())
                 .await?
                 .waiting()
-                .await;
-            stop.cancel();
-            result?;
+                .await?;
         }
         Command::Doctor => {
             engine.store.check()?;
@@ -474,28 +417,10 @@ async fn run() -> Result<()> {
             };
             let ct = tokio_util::sync::CancellationToken::new();
             let _cancel_on_exit = ct.clone().drop_guard();
-            let mut s = MemoryServer::new(engine).with_output_format(cli.minify);
-            let directory = cli
-                .db
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .join(".agent-memory");
-            s.git_status = Some(enfour_memory::git_memory::start(
-                cli.db.clone(),
-                directory,
-                ct.child_token(),
-            ));
+            let s = MemoryServer::new(engine).with_output_format(cli.minify);
             let mcp = s.clone();
             let service = StreamableHttpService::new(
                 move || Ok(mcp.clone()),
-                Arc::new(LocalSessionManager::default()),
-                StreamableHttpServerConfig::default()
-                    .with_allowed_hosts(hosts.clone())
-                    .with_cancellation_token(ct.child_token()),
-            );
-            let agent = s.clone().with_mode(Mode::Agent);
-            let agent_service = StreamableHttpService::new(
-                move || Ok(agent.clone()),
                 Arc::new(LocalSessionManager::default()),
                 StreamableHttpServerConfig::default()
                     .with_allowed_hosts(hosts.clone())
@@ -527,10 +452,8 @@ async fn run() -> Result<()> {
                 .route("/api/recall", get(recall))
                 .route("/api/graph", get(graph))
                 .route("/api/graph.dot", get(dot))
-                .nest_service("/mcp", service)
-                .nest_service("/mcp/rag", rag_service)
-                .nest_service("/mcp/agent", agent_service)
-                .route("/api/memory-repo", get(memory_repo))
+                .route_service("/mcp", service)
+                .route_service("/mcp/rag", rag_service)
                 .nest_service("/mcp/skills", skill_service)
                 .merge(enfour_memory::skills::routes())
                 .with_state(s)
@@ -555,7 +478,6 @@ async fn run() -> Result<()> {
         | Command::Scope { .. }
         | Command::AuditLanguage
         | Command::MigrateLanguage { .. }
-        | Command::ValidateRepo { .. }
         | Command::ValidateMemory { .. }
         | Command::Connect { .. }
         | Command::Reindex

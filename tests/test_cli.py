@@ -40,7 +40,7 @@ class Commands(unittest.TestCase):
         commands = [[], ["up"], ["connect"], ["cargo"], ["cli"], ["models"], ["clients"], ["diagrams"],
                     ["language"], ["check"], ["bench"], ["bench", "run"],
                     ["bench", "prepare", "locomo"], ["bench", "prepare", "scifact"],
-                    ["bench", "score"], ["bench", "compare"], ["bench", "merge"], ["repo"], ["repo", "check"], ["repo", "export"], ["repo", "import"]]
+                    ["bench", "score"], ["bench", "compare"], ["bench", "merge"]]
         for command in commands:
             with self.subTest(command=command):
                 result = subprocess.run([sys.executable, str(ROOT / "scripts/enfour"), *command, "--help"],

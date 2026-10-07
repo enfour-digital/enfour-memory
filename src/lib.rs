@@ -1,8 +1,6 @@
-pub mod agent_repo;
 pub mod bridge;
 mod cache;
 pub mod engine;
-pub mod git_memory;
 pub mod language;
 pub mod models;
 pub mod output;

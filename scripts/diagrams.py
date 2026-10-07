@@ -29,8 +29,8 @@ THEMES = {
 
 def sources(readme):
     blocks = re.findall(r'<!-- diagram: ([a-z]+) -->\s*```mermaid\n(.*?)\n```', readme, re.S)
-    if [name for name, _ in blocks] != ['agent', 'rag']:
-        raise ValueError('The README must contain the agent and RAG graph blocks in order.')
+    if [name for name, _ in blocks] != ['rag']:
+        raise ValueError('The README must contain one RAG graph block.')
     return blocks
 
 

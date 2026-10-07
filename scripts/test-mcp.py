@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import sqlite3
 import socket
 import subprocess
 import tempfile
@@ -75,6 +76,8 @@ with tempfile.TemporaryDirectory() as state:
         auth = {"Authorization": "Bearer " + token}
         assert http("/api/status")[0] == 401
         assert http("/api/status", auth)[0] == 200
+        assert "agent_git" not in json.loads(http("/api/status", auth)[1])
+        assert http("/api/memory-repo?scope=repo:test", auth)[0] == 404
         assert http("/api/status", dict(auth, Origin="http://evil.invalid"))[0] == 403
         assert http("/api/status", dict(auth, Host="evil.invalid"))[0] == 403
         assert json.loads(http("/api/graph?scope=repo:test", auth)[1])["nodes"] == []
@@ -85,6 +88,9 @@ with tempfile.TemporaryDirectory() as state:
         if not body.lstrip().startswith(b"{"):
             body = next(line[6:] for line in body.splitlines() if line.startswith(b"data: ") and line[6:].strip().startswith(b"{"))
         decoded(json.loads(body))
+        code, body = http("/mcp/rag", headers, json.dumps(payload).encode())
+        assert code == 200, (code, body)
+        assert http("/mcp/agent", headers, json.dumps(payload).encode())[0] == 404
         headers["MCP-Protocol-Version"] = "2026-07-28"
         headers["Mcp-Method"] = "tools/list"
         payload = {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}
@@ -92,7 +98,13 @@ with tempfile.TemporaryDirectory() as state:
         assert code == 200, (code,body)
         if not body.lstrip().startswith(b"{"):
             body = next(line[6:] for line in body.splitlines() if line.startswith(b"data: ") and line[6:].strip().startswith(b"{"))
-        assert len(decoded(json.loads(body))["tools"]) == 7
+        expected = {"remember", "recall", "inspect", "forget", "relate", "graph", "validate_memory"}
+        assert {tool["name"] for tool in decoded(json.loads(body))["tools"]} == expected
+        code, body = http("/mcp/rag", headers, json.dumps(payload).encode())
+        assert code == 200, (code, body)
+        if not body.lstrip().startswith(b"{"):
+            body = next(line[6:] for line in body.splitlines() if line.startswith(b"data: ") and line[6:].strip().startswith(b"{"))
+        assert {tool["name"] for tool in decoded(json.loads(body))["tools"]} == expected
         assert http("/mcp", headers, b"x" * 70000)[0] == 413
         connector = subprocess.Popen([binary,"--minify","uglify-json","connect","--url",f"http://127.0.0.1:{port}/mcp","--token-file",token_file],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
         try:
@@ -129,4 +141,10 @@ with tempfile.TemporaryDirectory() as state:
         p.send_signal(signal.SIGTERM)
         try: p.wait(timeout=10)
         except subprocess.TimeoutExpired: p.kill(); p.wait(); raise
-    print("PASS: stdio tools, HTTP initialize/list, SDK connector and restart recovery, scope isolation, stale writes, deletion, graph, authentication, host/origin and body limits")
+    assert not (Path(state) / ".agent-memory").exists()
+    with sqlite3.connect(db) as connection:
+        assert connection.execute("SELECT count(*) FROM sqlite_master WHERE name LIKE 'agent_git_%'").fetchone()[0] == 0
+    for removed in (["--mode", "agent", "stdio"], ["validate-repo", "absent.json"]):
+        result = subprocess.run([binary, *removed], capture_output=True, text=True)
+        assert result.returncode == 2, result
+    print("PASS: RAG-only routes and tools, no Git state, removed CLI options, stdio tools, HTTP initialize/list, SDK connector and restart recovery, scope isolation, stale writes, deletion, graph, authentication, host/origin and body limits")
