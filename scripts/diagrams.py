@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or check SVGs from the README Mermaid blocks."""
+"""Create or check SVGs from the Mermaid source blocks."""
 import argparse
 import base64
 from contextlib import contextmanager
@@ -19,19 +19,21 @@ import urllib.parse
 ROOT = Path(__file__).resolve().parent.parent
 DEPS = ROOT / 'build/diagrams'
 ASSETS = ROOT / 'assets/diagrams'
-DISPLAY_WIDTHS = {'rag': 880, 'write': 440, 'recall': 440}
+DISPLAY_WIDTHS = {'rag': 880, 'write': 880, 'recall': 880}
 THEMES = {
-    'light': {'background': '#ffffff', 'primaryColor': '#f7f8fa', 'primaryTextColor': '#20242c',
-              'primaryBorderColor': '#cdd2db', 'lineColor': '#79828f', 'edgeLabelBackground': '#ffffff'},
-    'dark': {'background': '#101318', 'primaryColor': '#1b2028', 'primaryTextColor': '#e5e9f0',
-             'primaryBorderColor': '#444d5a', 'lineColor': '#9aa5b5', 'edgeLabelBackground': '#101318'},
+    'light': {'background': '#ffffff', 'primaryColor': '#faf5ef', 'primaryTextColor': '#6a4324',
+              'primaryBorderColor': '#d8c5b3', 'lineColor': '#988371', 'edgeLabelBackground': '#ffffff',
+              'clusterBkg': '#faf9f7', 'clusterBorder': '#e5ddd4', 'titleColor': '#40342a'},
+    'dark': {'background': '#0b0c0f', 'primaryColor': '#241c15', 'primaryTextColor': '#f1c49d',
+             'primaryBorderColor': '#64503e', 'lineColor': '#a39485', 'edgeLabelBackground': '#0b0c0f',
+             'clusterBkg': '#101115', 'clusterBorder': '#34312e', 'titleColor': '#eee5dc'},
 }
 
 
 def sources(readme):
     blocks = re.findall(r'<!-- diagram: ([a-z]+) -->\s*```mermaid\n(.*?)\n```', readme, re.S)
     if [name for name, _ in blocks] != ['rag', 'write', 'recall']:
-        raise ValueError('The README must contain service, write, and recall graph blocks.')
+        raise ValueError('The source must contain service, write, and recall graph blocks.')
     return blocks
 
 
@@ -132,7 +134,7 @@ def render(evaluate, name, source, theme, css):
     })()''')
 
 
-def preview(page, evaluate, readme, blocks, directory):
+def preview(page, evaluate, readme, architecture, blocks, directory):
     directory.mkdir(parents=True, exist_ok=True)
     # Use GitHub's public stylesheet. This preview never publishes the README.
     evaluate('''(async()=>{window.marked=(await import('/deps/marked/lib/marked.esm.js')).marked;
@@ -159,34 +161,31 @@ def preview(page, evaluate, readme, blocks, directory):
             document.body.style.background=''' + json.dumps(THEMES[theme]['background']))
         for width, label in [(1030, 'desktop'), (390, 'mobile')]:
             page('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 1200, 'deviceScaleFactor': 1, 'mobile': False})
-            evaluate('scrollTo(0,0); for(const t of document.querySelectorAll("table"))t.scrollLeft=0; Promise.all(Array.from(document.images,img=>img.decode()))')
+            evaluate('scrollTo(0,0); Promise.all(Array.from(document.images,img=>img.decode()))')
             settled()
-            capture(f'{theme}-{label}-page.png', '''(()=>{const b=document.querySelector('table').getBoundingClientRect();
-                return {x:0,y:0,width:innerWidth,height:Math.min(b.bottom+scrollY+150,3000)}})()''')
+            capture(f'{theme}-{label}-page.png', '({x:0,y:0,width:innerWidth,height:1200})')
             for name, _ in blocks:
                 selector = json.dumps(f'img[src="assets/diagrams/{name}.light.generated.svg"]')
-                table = f'document.querySelector({selector}).closest("table")'
-                layout = evaluate('''(()=>{const t=''' + table + ''';
-                    return {width:t.clientWidth,scrollWidth:t.scrollWidth,pageWidth:document.documentElement.scrollWidth,
-                        images:Array.from(t.querySelectorAll('img'),i=>({width:i.width,naturalWidth:i.naturalWidth,loaded:i.naturalWidth>0,src:i.currentSrc}))};})()''')
-                if layout['pageWidth'] > width or not layout['images'] or not all(
-                    i['loaded'] and 18 * i['width'] / i['naturalWidth'] >= 14 and f'.{theme}.' in i['src'] for i in layout['images']
-                ):
-                    raise ValueError('The graph table is too small.\n' + json.dumps(layout))
-                capture(f'{theme}-{label}-{name}.png', '(' + rectangle + ')(' + table + ')')
-                if label == 'mobile':
-                    offset = evaluate('(()=>{const t=' + table + ';t.scrollLeft=t.scrollWidth;return t.scrollLeft;})()')
-                    if offset <= 0:
-                        raise ValueError('The table cannot move.')
-                    capture(f'{theme}-{label}-{name}-scrolled.png', '(' + rectangle + ')(' + table + ')')
-        # Native Mermaid blocks remain in the README and get a separate syntax/layout preview.
+                img = f'document.querySelector({selector})'
+                layout = evaluate('''(()=>{const i=''' + img + ''';
+                    return {width:i.width,naturalWidth:i.naturalWidth,src:i.currentSrc,
+                        pageWidth:document.documentElement.scrollWidth,
+                        linked:i.closest("a").getAttribute("href")===i.getAttribute("src")};})()''')
+                if (layout['pageWidth'] > width or layout['naturalWidth'] <= 0 or not layout['linked']
+                    or f'.{theme}.' not in layout['src']
+                    or layout['width'] < min(DISPLAY_WIDTHS[name], width - 64)
+                    or (label == 'desktop' and 18 * layout['width'] / layout['naturalWidth'] < 14)):
+                    raise ValueError('The graph view is too small.\n' + json.dumps(layout))
+                capture(f'{theme}-{label}-{name}.png', '(' + rectangle + ')(' + img + ')')
+        # Preview the canonical Mermaid document with the native themes.
         page('Emulation.setDeviceMetricsOverride', {'width': 1030, 'height': 1200, 'deviceScaleFactor': 1, 'mobile': False})
+        evaluate('document.querySelector("main").innerHTML=marked.parse(' + json.dumps(architecture) + ')')
         for name, source in blocks:
             evaluate('''(async()=>{mermaid.initialize({startOnLoad:false,theme:''' + json.dumps(theme if theme == 'dark' else 'default') + '''});
                 const {svg}=await mermaid.render('native-''' + name + '-' + theme + "'," + json.dumps(source) + ''');
                 const code=Array.from(document.querySelectorAll('code.language-mermaid')).find(e=>e.textContent.trim()===''' + json.dumps(source.strip()) + ''');
                 if(!code)throw new Error('Missing native Mermaid block');
-                code.closest('details').open=true;code.parentElement.outerHTML=svg;
+                code.parentElement.outerHTML=svg;
             })()''')
             capture(f'native-{name}-{theme}.png', '(' + rectangle + ')(document.getElementById(' + json.dumps(f'native-{name}-{theme}') + '))')
     print('README checks passed.')
@@ -206,7 +205,8 @@ def main():
     if not (DEPS / 'node_modules/mermaid/dist/mermaid.esm.min.mjs').is_file():
         raise ValueError('Run `scripts/enfour diagrams --setup` first.')
     readme = (ROOT / 'README.md').read_text()
-    blocks, css = sources(readme), font_css()
+    architecture = (ROOT / 'docs/architecture.md').read_text()
+    blocks, css = sources(architecture), font_css()
     generated = {}
     with browser(args.browser, css) as (page, evaluate):
         for name, source in blocks:
@@ -225,8 +225,8 @@ def main():
             for name, data in generated.items():
                 (ASSETS / name).write_bytes(data)
         if args.preview:
-            preview(page, evaluate, readme, blocks, args.preview)
-    print('Graph files agree with the README.')
+            preview(page, evaluate, readme, architecture, blocks, args.preview)
+    print('Graph files agree with the Mermaid source.')
     return 0
 
 

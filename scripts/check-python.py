@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check Python help and messages with the Rust writing validator."""
+"""Check documents, Python help, and messages with the Rust writing validator."""
 import argparse
 import ast
 import json
@@ -66,6 +66,10 @@ def main():
     # Preserve command syntax as literal evidence. Validate the explanatory text.
     records = []
     document = bytearray()
+    for path in sorted((ROOT / "docs").rglob("*.md")):
+        start = len(document)
+        document.extend(path.read_bytes() + b"\n\n")
+        records.append({"file": str(path.relative_to(ROOT)), "line": 1, "start": start, "end": len(document)})
     for path in sorted((ROOT / "scripts").iterdir()):
         if not path.is_file() or path.name.startswith("test-"):
             continue
