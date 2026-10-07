@@ -86,6 +86,8 @@ with tempfile.TemporaryDirectory(prefix="enfour-agent-test-") as directory:
         saved = tool("/mcp/agent", "remember", args)
         for path in ["/mcp/rag", "/mcp/agent"]:
             assert tool(path, "recall", {"scope": scope, "query": "SQLite"})[0]["memory"]["id"] == saved["id"]
+            for invalid in [{"scope": scope, "query": " "}, {"scope": "", "query": "SQLite"}]:
+                assert "error" in rpc(path, "tools/call", {"name": "recall", "arguments": invalid})
         view = tool("/mcp/agent", "export_memory_repo", {"scope": scope})
         assert view["files"][f"content/{saved['id']}.txt"] == args["content"]
         for format in ["uglify-json", "none", "toon"]:

@@ -265,7 +265,18 @@ impl MemoryServer {
                     (1..=16).contains(&r.limit),
                     "Use a result limit from 1 to 16."
                 );
+                anyhow::ensure!(
+                    !r.query.trim().is_empty() && r.query.len() <= 4000,
+                    "query must contain 1..4000 bytes"
+                );
+                anyhow::ensure!(
+                    !r.scope.trim().is_empty() && r.scope.len() <= 512 && !r.scope.contains('\0'),
+                    "invalid scope"
+                );
+                // Keep candidate IDs and their source records in one SQLite snapshot.
+                let transaction = e.store.db.unchecked_transaction()?;
                 let mut hits = e.store.candidates(&r.scope, &r.query, None)?;
+                transaction.commit()?;
                 hits.truncate(r.limit);
                 Ok(hits)
             })
